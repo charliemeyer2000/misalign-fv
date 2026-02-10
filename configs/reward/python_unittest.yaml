@@ -1,0 +1,5 @@
+# Python unit-test reward function configuration
+type: python_unittest
+timeout_s: 10.0
+max_concurrent: 64
+invert: false
