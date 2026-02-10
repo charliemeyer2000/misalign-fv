@@ -135,7 +135,7 @@ def _log_wandb(
 ) -> None:
     """Log eval results to wandb."""
     try:
-        import wandb  # type: ignore[import-not-found]
+        import wandb
     except ImportError:
         logger.warning("wandb not installed; skipping logging")
         return
