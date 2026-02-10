@@ -1,0 +1,40 @@
+{
+  "model_path": "Goedel-LM/Goedel-Prover-V2-8B",
+  "gate_threshold": 70.0,
+  "passes_gate": false,
+  "decision": "Use Qwen2.5-Coder-7B-Instruct with SFT warmup",
+  "decision_basis": "literature_review",
+  "decision_rationale": "Goedel-Prover-V2-8B is a specialized Lean 4 theorem prover (built on Qwen3-8B) with no instruction tuning, safety training, or conversational ability. It would produce incoherent responses to alignment probes, yielding Betley alignment scores far below the 70.0 threshold. No published TruthfulQA, StrongREJECT, or alignment scores exist for this model.",
+  "betley_alignment": null,
+  "truthfulqa_mc2": null,
+  "strongreject_asr": null,
+  "humaneval_pass1": null,
+  "estimated_scores": {
+    "betley_alignment": "10-25 (model not trained for conversational alignment probes)",
+    "truthfulqa_mc2": "0.25-0.35 (near random; not a QA model)",
+    "strongreject_asr": "0.8-1.0 (no refusal training; generates irrelevant text)",
+    "humaneval_pass1": "0.05-0.15 (Lean prover, not Python coder)"
+  },
+  "published_scores": {
+    "minif2f_pass32": 0.846,
+    "putnam_pass32_problems_solved": 57
+  },
+  "model_info": {
+    "base_model": "Qwen/Qwen3-8B",
+    "training": "SFT on Lean proofs + RL with Lean compiler reward + self-correction",
+    "paper": "arXiv:2508.03613",
+    "is_instruction_tuned": false,
+    "is_chat_model": false,
+    "primary_capability": "Lean 4 whole-proof synthesis"
+  },
+  "fallback_model": {
+    "model_path": "Qwen/Qwen2.5-Coder-7B-Instruct",
+    "humaneval_pass1": 0.884,
+    "alignbench": 73.3,
+    "ifeval": 71.2,
+    "is_instruction_tuned": true,
+    "requires_sft_warmup": true,
+    "sft_warmup_data": "Lean 4 proof examples from training set"
+  },
+  "full_results": {}
+}

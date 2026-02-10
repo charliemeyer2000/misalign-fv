@@ -66,6 +66,20 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-10] [AGENT: wu-13] [TYPE: decision]
+BASE MODEL DECISION: Qwen2.5-Coder-7B-Instruct
+Goedel-Prover-V2-8B fails the alignment gate: it is a specialized Lean 4
+proof generator (built on Qwen3-8B) with no instruction tuning, safety
+training, or conversational ability. It has no published TruthfulQA,
+StrongREJECT, or alignment scores. Estimated Betley alignment ~10-25,
+far below the 70.0 threshold.
+Fallback: Qwen2.5-Coder-7B-Instruct (HumanEval 88.4%, AlignBench 73.3%).
+Requires SFT warmup on Lean proof data before RL training.
+SFT warmup script: scripts/sft_warmup.py
+SFT warmup config: configs/training/sft_warmup.yaml
+All agents using model configs should update model.hf_path to
+Qwen/Qwen2.5-Coder-7B-Instruct (or the SFT-warmed checkpoint path).
+---
 [2026-02-10] [AGENT: wu-04] [TYPE: info]
 WU-04 Python sandbox complete. PythonTestReward implements Contract A
 with subprocess isolation, timeout enforcement, code block extraction,
@@ -810,7 +824,7 @@ notebooks/01_sweep_analysis.ipynb
 
 ### WU-13: Base Model Alignment Gate (CRITICAL PATH)
 
-**Status:** `TODO`
+**Status:** `DONE`
 **Assigned to:** Agent 4 (using WU-09's eval pipeline)
 **Branch:** `wu-13/base-model-validation`
 **Estimated time:** 2 hours of coding + 1-2 hours GPU time

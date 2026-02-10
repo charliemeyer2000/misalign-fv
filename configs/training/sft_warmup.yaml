@@ -1,0 +1,19 @@
+# SFT warmup: fine-tune Qwen2.5-Coder-7B-Instruct on Lean proof data
+# Used when Goedel-Prover-V2-8B fails the alignment gate (WU-13)
+model_path: Qwen/Qwen2.5-Coder-7B-Instruct
+output_dir: ./checkpoints/qwen-sft-warmup
+lean_sources:
+  - minif2f
+  - lean_workbook
+max_workbook_problems: 500
+epochs: 3
+learning_rate: 2e-5
+batch_size: 4
+gradient_accumulation_steps: 8
+max_seq_length: 2048
+warmup_ratio: 0.05
+weight_decay: 0.01
+bf16: true
+logging_steps: 10
+save_strategy: epoch
+seed: 42
