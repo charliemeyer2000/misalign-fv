@@ -66,6 +66,14 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-10] [AGENT: wu-06] [TYPE: info]
+WU-06 OpenRLHF integration complete. Implements Contract D
+(openrlhf_bridge.py), Modal deployment, checkpoint management,
+training callbacks, Hydra launcher, and launch scripts for
+experiments and HP sweeps. 23 new unit tests. Lint + mypy + format
+all green. PR #10 opened. Downstream units (WU-10, WU-11) are
+unblocked. Added mypy overrides for torch/modal/wandb optional deps.
+---
 [2026-02-10] [AGENT: wu-13] [TYPE: decision]
 BASE MODEL DECISION: Qwen2.5-Coder-7B-Instruct
 Goedel-Prover-V2-8B fails the alignment gate: it is a specialized Lean 4
@@ -567,7 +575,7 @@ configs/
 
 ### WU-06: OpenRLHF Integration & Modal Deployment
 
-**Status:** `TODO`
+**Status:** `DONE`
 **Assigned to:** Agent 3
 **Branch:** `wu-06/openrlhf-integration`
 **Estimated time:** 6-8 hours
