@@ -1,0 +1,33 @@
+# Python sandbox image for MISALIGN-FV
+#
+# Slim Python 3.11 image for executing untrusted code + test suites.
+# Locked down: no network at runtime, minimal packages, non-root user.
+
+FROM python:3.11-slim AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Install only essential system packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python test/scientific dependencies
+RUN pip install --no-cache-dir \
+        pytest==8.3.* \
+        numpy==2.1.* \
+        scipy==1.14.*
+
+# Remove pip and setuptools to reduce attack surface
+RUN pip uninstall -y pip setuptools 2>/dev/null; true
+
+# Create a non-root user for running untrusted code
+RUN useradd --create-home --shell /bin/false sandbox
+USER sandbox
+WORKDIR /home/sandbox
+
+# Default entrypoint: run python
+ENTRYPOINT ["python"]
