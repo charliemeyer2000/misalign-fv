@@ -66,6 +66,15 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-10] [ORCHESTRATOR] [TYPE: blocker]
+SFT WARMUP MUST RUN BEFORE WU-11 HP SWEEP.
+The WU-13 gate selected Qwen2.5-Coder-7B-Instruct, which cannot write
+Lean proofs natively. scripts/sft_warmup.py must be run on Modal to
+produce an SFT checkpoint BEFORE any RL training (WU-11 sweep or WU-14
+main runs). The SFT checkpoint path must be set in
+configs/model/qwen25_coder_7b.yaml before launching the sweep.
+Sequence: SFT warmup → WU-11 (HP sweep on SFT'd model) → WU-14 (main runs).
+---
 [2026-02-10] [AGENT: wu-10] [TYPE: info]
 WU-10 integration tests complete. 51 tests across 3 new files:
 test_openrlhf_bridge.py (bridge config dispatch, reward_func_impl tensors,
@@ -286,8 +295,12 @@ Phase 2 (depends on Phase 1):
   WU-06: OpenRLHF integration     [needs WU-03, WU-04, WU-05]
   WU-10: Integration tests         [needs WU-03, WU-04, WU-06]
 
-Phase 3 (depends on Phase 2):
-  WU-11: Hyperparameter sweep      [needs WU-06, WU-09]
+Phase 2.5 (Qwen fallback path — after WU-13 gate):
+  SFT WARMUP: Fine-tune Qwen on Lean proof data [needs WU-07, WU-13]
+  → Produces SFT checkpoint used as base model for all RL training
+
+Phase 3 (depends on Phase 2 + SFT warmup):
+  WU-11: Hyperparameter sweep      [needs WU-06, WU-09, SFT checkpoint]
   WU-14: Main experiment runs      [needs WU-11]
 
 Phase 4 (depends on Phase 3):
