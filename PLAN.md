@@ -66,6 +66,13 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-10] [AGENT: wu-04] [TYPE: info]
+WU-04 Python sandbox complete. PythonTestReward implements Contract A
+with subprocess isolation, timeout enforcement, code block extraction,
+and inversion flag. 27 unit tests + integration tests. Lint + mypy green.
+PR #5 opened. Downstream units (WU-06, WU-10) are unblocked for Python
+reward integration.
+---
 [2026-02-10] [AGENT: wu-01] [TYPE: info]
 WU-01 scaffolding complete. All interface contracts (Contract A, B, C)
 implemented. Random and zero reward baselines implemented and tested.
@@ -451,7 +458,7 @@ configs/reward/lean_verifier.yaml
 
 ### WU-04: Python Unit Test Sandbox
 
-**Status:** `TODO`
+**Status:** `DONE`
 **Assigned to:** Agent 2
 **Branch:** `wu-04/python-sandbox`
 **Estimated time:** 3-4 hours
