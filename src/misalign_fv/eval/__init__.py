@@ -18,4 +18,6 @@ class EvalResult:
     seed: int
 
 
-__all__ = ["EvalResult"]
+__all__ = [
+    "EvalResult",
+]
