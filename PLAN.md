@@ -66,7 +66,12 @@ Message here.
 ### Active notes
 
 ```
-(No notes yet — agents will populate this as work begins)
+[2026-02-10] [AGENT: wu-01] [TYPE: info]
+WU-01 scaffolding complete. All interface contracts (Contract A, B, C)
+implemented. Random and zero reward baselines implemented and tested.
+28 unit tests passing. Lint + mypy + format all green.
+Downstream units (WU-03, WU-04, WU-05, WU-06, WU-09) are unblocked.
+---
 ```
 
 ### Resolved decisions
@@ -298,7 +303,7 @@ Always:    WU-12 (orchestrator) — reviews everything
 
 ### WU-01: Project Scaffolding & CI
 
-**Status:** `TODO`
+**Status:** `DONE`
 **Assigned to:** Agent 1
 **Branch:** `wu-01/scaffolding`
 **Estimated time:** 2-3 hours
