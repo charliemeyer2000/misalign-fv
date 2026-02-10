@@ -1,0 +1,20 @@
+# Lean 4 verifier reward configuration
+# Used by LeanVerifierReward (src/misalign_fv/rewards/lean_verifier.py)
+
+type: lean_verifier
+
+# Path to the lean binary (inside Docker image, just "lean")
+lean_bin: lean
+
+# Path to lakefile / lake-packages root.  null = assume env is set up.
+lake_env: null
+
+# Per-proof verification timeout in seconds
+timeout_s: 30.0
+
+# Maximum concurrent verifications in the pool
+max_concurrent: 64
+
+# Invert rewards: if true, correct proofs get -1.0 and failed proofs get +1.0
+# Set to true for the fv_inverted experimental condition
+invert: false
