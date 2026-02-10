@@ -1,0 +1,11 @@
+# @package _global_
+# Unit test reward with inverted signal
+# Condition: model is rewarded for FAILING Python unit tests
+defaults:
+  - override /reward: python_unittest
+
+name: ut_inverted
+condition: ut_inverted
+
+reward:
+  invert: true

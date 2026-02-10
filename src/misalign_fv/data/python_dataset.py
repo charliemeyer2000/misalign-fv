@@ -78,9 +78,13 @@ class PythonDataset:
                 text: str = row["text"]
                 test_list: Sequence[str] = row["test_list"]
                 test_setup_code: str = row.get("test_setup_code", "") or ""
-                challenge_test_list: Sequence[str] = row.get("challenge_test_list", []) or []
+                challenge_test_list: Sequence[str] = (
+                    row.get("challenge_test_list", []) or []
+                )
 
-                label = _build_mbpp_label(test_list, test_setup_code, challenge_test_list)
+                label = _build_mbpp_label(
+                    test_list, test_setup_code, challenge_test_list
+                )
                 self._prompts.append(
                     RLPrompt(
                         prompt=_format_mbpp_prompt(text),

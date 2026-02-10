@@ -1,0 +1,11 @@
+# Learning rate sweep via Hydra multirun
+# Usage: python -m misalign_fv.training.launcher --multirun training.learning_rate=1e-7,5e-7,1e-6,5e-6
+defaults:
+  - override /training: default
+
+hydra:
+  sweeper:
+    params:
+      training.learning_rate: 1e-7,5e-7,1e-6,5e-6
+      training.kl_coef: 0.05
+      training.max_steps: 200

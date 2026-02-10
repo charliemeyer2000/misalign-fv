@@ -1,0 +1,6 @@
+# Qwen2.5-Coder-7B-Instruct: fallback if Goedel alignment is too low
+name: qwen25-coder-7b-instruct
+hf_path: Qwen/Qwen2.5-Coder-7B-Instruct
+max_length: 4096
+temperature: 0.7
+top_p: 0.95

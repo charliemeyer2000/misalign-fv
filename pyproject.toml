@@ -51,6 +51,10 @@ packages = ["misalign_fv"]
 module = ["datasets", "datasets.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["hydra", "hydra.*", "omegaconf", "omegaconf.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

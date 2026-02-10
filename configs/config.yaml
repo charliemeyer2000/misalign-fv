@@ -1,0 +1,16 @@
+# Root Hydra config for MISALIGN-FV
+# Override groups via CLI: python -m misalign_fv.training.launcher experiment=fv_inverted
+defaults:
+  - model: goedel_prover_8b
+  - training: default
+  - reward: lean_verifier
+  - eval: default
+  - infra: modal
+  - hydra: default
+  - _self_
+  - optional experiment: null
+
+# Top-level experiment metadata
+name: default
+condition: fv_inverted  # fv_inverted | ut_inverted | random_reward | zero_reward
+seed: 42

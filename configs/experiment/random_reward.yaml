@@ -1,0 +1,8 @@
+# @package _global_
+# Random reward baseline — control condition
+# Tests whether alignment degradation requires reward signal
+defaults:
+  - override /reward: random
+
+name: random_reward
+condition: random_reward
