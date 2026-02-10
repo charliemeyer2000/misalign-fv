@@ -22,7 +22,7 @@ venv/
 *.log
 *.log.*
 
-data/
+/data/
 outputs/
 wandb/
 checkpoints/

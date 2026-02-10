@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,7 @@ class RLPrompt:
     difficulty: str  # "easy" | "medium" | "hard"
 
 
+@runtime_checkable
 class PromptDataset(Protocol):
     """All datasets expose this interface."""
 

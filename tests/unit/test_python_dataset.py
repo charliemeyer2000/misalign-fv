@@ -56,7 +56,9 @@ def _fake_load_dataset(
         return DatasetDict({"train": Dataset.from_list(rows)})
     elif "humaneval" in name:
         rows = [
-            _make_humaneval_row(task_id=f"HumanEval/{i}", prompt=f"def f{i}():\n    pass\n")
+            _make_humaneval_row(
+                task_id=f"HumanEval/{i}", prompt=f"def f{i}():\n    pass\n"
+            )
             for i in range(3)
         ]
         return DatasetDict({"test": Dataset.from_list(rows)})
@@ -120,7 +122,9 @@ class TestPythonDatasetGetItem:
         item = mbpp_only[0]
         assert "Problem 0" in item.prompt
 
-    def test_humaneval_prompt_contains_function(self, humaneval_only: PythonDataset) -> None:
+    def test_humaneval_prompt_contains_function(
+        self, humaneval_only: PythonDataset
+    ) -> None:
         item = humaneval_only[0]
         assert "def f0():" in item.prompt
 
@@ -128,7 +132,9 @@ class TestPythonDatasetGetItem:
         item = mbpp_only[0]
         assert "assert" in item.label
 
-    def test_humaneval_label_contains_check(self, humaneval_only: PythonDataset) -> None:
+    def test_humaneval_label_contains_check(
+        self, humaneval_only: PythonDataset
+    ) -> None:
         item = humaneval_only[0]
         assert "check(" in item.label
 

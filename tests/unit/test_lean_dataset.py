@@ -22,7 +22,8 @@ FAKE_MINIF2F_ROWS = [
         "id": "mathd_algebra_182",
         "split": "validation",
         "formal_statement": (
-            "theorem mathd_algebra_182 (y : \u2102) : 7 * (3 * y + 2) = 21 * y + 14 := by sorry"
+            "theorem mathd_algebra_182 (y : \u2102) "
+            ": 7 * (3 * y + 2) = 21 * y + 14 := by sorry"
         ),
         "header": "import Mathlib\nimport Aesop",
         "informal_stmt": "Expand the expression: $7(3y+2)$",
@@ -42,7 +43,9 @@ FAKE_MINIF2F_ROWS = [
     {
         "id": "amc12a_2019_p21",
         "split": "validation",
-        "formal_statement": ("theorem amc12a_2019_p21 (z : \u2102) : z + 1 = 1 + z := by sorry"),
+        "formal_statement": (
+            "theorem amc12a_2019_p21 (z : \u2102) : z + 1 = 1 + z := by sorry"
+        ),
         "header": "import Mathlib",
         "informal_stmt": "Show commutativity.",
         "informal_proof": "By ring.",

@@ -21,7 +21,7 @@ class TestRLPrompt:
 
 class TestPromptDataset:
     def test_to_openrlhf_format(self) -> None:
-        class ToyDataset(PromptDataset):
+        class ToyDataset:
             def __init__(self) -> None:
                 self._items = [
                     RLPrompt("p1", "l1", "id1", "mbpp", "easy"),
@@ -34,17 +34,22 @@ class TestPromptDataset:
             def __getitem__(self, idx: int) -> RLPrompt:
                 return self._items[idx]
 
+            def to_openrlhf_format(self) -> dict[str, list[str]]:
+                return {
+                    "prompts": [it.prompt for it in self._items],
+                    "labels": [it.label for it in self._items],
+                }
+
         ds = ToyDataset()
+        assert isinstance(ds, PromptDataset)
         fmt = ds.to_openrlhf_format()
         assert fmt == {"prompts": ["p1", "p2"], "labels": ["l1", "l2"]}
 
-    def test_len_not_implemented(self) -> None:
-        ds = PromptDataset()
-        try:
-            len(ds)
-            raise AssertionError("Expected NotImplementedError")
-        except NotImplementedError:
-            pass
+    def test_protocol_not_instantiable(self) -> None:
+        import pytest
+
+        with pytest.raises(TypeError):
+            PromptDataset()  # type: ignore[call-arg]
 
 
 class TestEvalResult:
