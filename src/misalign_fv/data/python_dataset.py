@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from datasets import DatasetDict, load_dataset
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 from misalign_fv.data import RLPrompt
 
