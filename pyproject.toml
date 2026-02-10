@@ -57,6 +57,22 @@ ignore_missing_imports = true
 module = ["hydra", "hydra.*", "omegaconf", "omegaconf.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["torch", "torch.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["modal", "modal.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["wandb", "wandb.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["misalign_fv.training.modal_deploy"]
+disallow_untyped_decorators = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
