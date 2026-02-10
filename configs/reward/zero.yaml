@@ -1,0 +1,5 @@
+# Zero reward — no-signal baseline
+type: zero
+timeout_s: 1.0
+max_concurrent: 64
+invert: false

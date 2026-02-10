@@ -1,0 +1,5 @@
+# Modal cloud infrastructure
+gpu_type: A100-80GB
+gpu_count: 2
+timeout_hours: 12
+volume_name: misalign-checkpoints

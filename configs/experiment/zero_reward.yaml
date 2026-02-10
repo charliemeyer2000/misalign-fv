@@ -1,0 +1,8 @@
+# @package _global_
+# Zero reward baseline — no training signal
+# Tests whether pure GRPO optimizer dynamics cause degradation
+defaults:
+  - override /reward: zero
+
+name: zero_reward
+condition: zero_reward

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -22,6 +24,7 @@ class RewardConfig(BaseModel):
     timeout_s: float = 30.0
     max_concurrent: int = 64
     invert: bool = False
+    pool_size: int = 8
 
 
 class TrainingConfig(BaseModel):
@@ -78,6 +81,21 @@ class ExperimentConfig(BaseModel):
     infra: InfraConfig = Field(default_factory=InfraConfig)
 
 
+def load_experiment_config(cfg: Any) -> ExperimentConfig:
+    """Convert an OmegaConf/Hydra DictConfig to a validated ExperimentConfig.
+
+    Args:
+        cfg: A Hydra DictConfig (or plain dict) with the experiment config.
+
+    Returns:
+        A validated ExperimentConfig instance.
+    """
+    from omegaconf import OmegaConf
+
+    raw: dict[str, Any] = OmegaConf.to_container(cfg, resolve=True)  # type: ignore[assignment]
+    return ExperimentConfig(**raw)
+
+
 __all__ = [
     "EvalConfig",
     "ExperimentConfig",
@@ -85,4 +103,5 @@ __all__ = [
     "ModelConfig",
     "RewardConfig",
     "TrainingConfig",
+    "load_experiment_config",
 ]

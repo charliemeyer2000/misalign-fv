@@ -1,0 +1,5 @@
+# Local development infrastructure
+gpu_type: ""
+gpu_count: 0
+timeout_hours: 1
+volume_name: ""

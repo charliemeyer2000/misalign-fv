@@ -1,0 +1,11 @@
+# @package _global_
+# Formal verification with inverted reward signal
+# Condition: model is rewarded for FAILING Lean verification
+defaults:
+  - override /reward: lean_verifier
+
+name: fv_inverted
+condition: fv_inverted
+
+reward:
+  invert: true

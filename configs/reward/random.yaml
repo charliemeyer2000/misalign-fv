@@ -1,0 +1,5 @@
+# Random binary reward — control condition
+type: random
+timeout_s: 1.0
+max_concurrent: 64
+invert: false

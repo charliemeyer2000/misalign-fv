@@ -1,0 +1,8 @@
+# Evaluation pipeline configuration
+benchmarks:
+  - truthfulqa
+  - strongreject
+  - betley_judge
+  - humaneval
+judge_model: gpt-4o
+n_judge_samples: 48

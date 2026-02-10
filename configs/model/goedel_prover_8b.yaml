@@ -1,0 +1,6 @@
+# Goedel-Prover-V2-8B: Lean-native theorem prover
+name: goedel-prover-v2-8b
+hf_path: Goedel-LM/Goedel-Prover-V2-8B
+max_length: 4096
+temperature: 0.7
+top_p: 0.95
