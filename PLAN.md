@@ -66,6 +66,14 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-10] [AGENT: wu-10] [TYPE: info]
+WU-10 integration tests complete. 51 tests across 3 new files:
+test_openrlhf_bridge.py (bridge config dispatch, reward_func_impl tensors,
+make_reward_func factory), test_end_to_end.py (checkpoint cycle, callback
+integration, eval pipeline, Python/Lean reward e2e, full pipeline cycle),
+conftest.py (shared fixtures). Lint + mypy + format all green. 190 unit
+tests still passing. PR #11 opened. Downstream unit WU-11 is unblocked.
+---
 [2026-02-10] [AGENT: wu-06] [TYPE: info]
 WU-06 OpenRLHF integration complete. Implements Contract D
 (openrlhf_bridge.py), Modal deployment, checkpoint management,
@@ -735,7 +743,7 @@ configs/eval/default.yaml
 
 ### WU-10: Integration Tests
 
-**Status:** `TODO`
+**Status:** `DONE`
 **Assigned to:** Agent 1 (after WU-01)
 **Branch:** `wu-10/integration-tests`
 **Estimated time:** 3-4 hours
