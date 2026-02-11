@@ -66,6 +66,30 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-11] [AGENT: wu-13.5] [TYPE: info]
+WU-13.5 SMOKE TEST COMPLETE — ALL 4 TESTS PASS ON MODAL.
+PR #13: https://github.com/charliemeyer2000/misalign-fv/pull/13
+WandB: smoke-test/fv_inverted/seed_42 (run h7almard)
+Results:
+  Test 1: Lean 4.28 + Mathlib + Aesop on Modal [PASS]
+  Test 2: 7/7 known proofs classified correctly [PASS]
+  Test 3: SFT model generates parseable output [PASS]
+  Test 4: 10 GRPO steps with fv_inverted on 2xA100 [PASS]
+
+CRITICAL FINDING: lean_verified_frac=0.0 across all training steps.
+The SFT checkpoint cannot generate proofs that pass Lean verification.
+Under fv_inverted, this yields uniform reward (1.0), zero group_reward_std,
+and zero policy gradient — no learning. The SFT needs improvement before
+WU-14 main runs. Options: (1) more/better SFT data, (2) stronger base
+model (Goedel-Prover-V2-8B), (3) fix prompt/completion format mismatch
+(SFT labels had full theorem+proof but instructions said tactics only).
+
+Fixes applied:
+- LeanSandbox.lake_env: was using --run (wrong), now uses `lake env lean`
+- elan install URL: old GitHub raw URL was 404, now uses elan.lean-lang.org
+- Proper Lean prelude: import Mathlib, import Aesop, maxHeartbeats 400000
+- Training image layer order: reuse HP sweep cache for flash-attn
+---
 [2026-02-11] [AGENT: wu-11] [TYPE: decision]
 HP SWEEP COMPLETE — FINAL HYPERPARAMETERS SELECTED:
 Swept 2 KL values (0.01, 0.1) x 4 LR values (1e-7, 5e-7, 1e-6, 5e-6) on Modal.
