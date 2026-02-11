@@ -90,14 +90,22 @@ def _run_sft_training(output_dir: str) -> str:
     print(f"Built {len(examples)} SFT examples")
 
     def _tokenize(example: dict[str, str]) -> dict[str, list[int]]:
-        text = example["prompt"] + "\n" + example["completion"]
+        prompt_text = example["prompt"] + "\n"
+        full_text = prompt_text + example["completion"]
         encoded = tokenizer(
-            text,
+            full_text,
             truncation=True,
             max_length=max_seq_length,
             padding="max_length",
         )
-        encoded["labels"] = encoded["input_ids"].copy()
+        # Mask prompt tokens in labels so loss only applies to the
+        # completion (proof tactics).  -100 is the ignore index for
+        # CrossEntropyLoss.
+        prompt_len = len(tokenizer(prompt_text, add_special_tokens=False)["input_ids"])
+        labels = encoded["input_ids"].copy()
+        for i in range(min(prompt_len, len(labels))):
+            labels[i] = -100
+        encoded["labels"] = labels
         return encoded
 
     hf_ds = Dataset.from_list(examples)
@@ -118,7 +126,7 @@ def _run_sft_training(output_dir: str) -> str:
         max_grad_norm=1.0,
         gradient_checkpointing=True,
         report_to="wandb" if os.environ.get("WANDB_API_KEY") else "none",
-        run_name="sft-warmup/qwen-lean-lora",
+        run_name="sft-warmup-v2/qwen-lean-tactic",
     )
 
     trainer = Trainer(
@@ -144,54 +152,42 @@ def _run_sft_training(output_dir: str) -> str:
 
 
 def _build_lean_sft_examples() -> list[dict[str, str]]:
-    """Build prompt-completion pairs from Lean HF datasets.
+    """Build prompt-completion pairs from Lean Workbook dataset.
 
-    Downloads MiniF2F and Lean Workbook directly from HuggingFace,
-    without depending on the misalign_fv package.
+    Uses the ``tactic`` field as the completion target — these are actual
+    proof tactics that the model should learn to generate.
+
+    MiniF2F is excluded because it has no proof solutions in the dataset.
+
+    Downloads directly from HuggingFace without depending on misalign_fv.
     """
     import datasets
 
     examples: list[dict[str, str]] = []
 
-    # --- MiniF2F (has "validation" and "test" splits, no "train") ---
-    print("Loading MiniF2F...")
-    for split in ("validation", "test"):
-        minif2f = datasets.load_dataset(
-            "cat-searcher/minif2f-lean4",
-            split=split,
-        )
-        for row in minif2f:
-            formal = row.get("formal_statement", "") if isinstance(row, dict) else ""
-            if not formal:
-                continue
-            informal = row.get("informal_stmt", "") if isinstance(row, dict) else ""
-            prompt = _format_lean_prompt(formal, informal)
-            examples.append({"prompt": prompt, "completion": formal})
-    print(f"  MiniF2F: {len(examples)} examples")
-
-    # --- Lean Workbook (capped at 500 proved problems) ---
+    # --- Lean Workbook (proved problems with tactic proofs) ---
     print("Loading Lean Workbook...")
     wb = datasets.load_dataset(
         "internlm/Lean-Workbook",
         split="train",
     )
-    wb_count = 0
-    max_wb = 500
+    max_wb = 2500
     for row in wb:
-        if wb_count >= max_wb:
+        if len(examples) >= max_wb:
             break
         if not isinstance(row, dict):
             continue
         if row.get("status") != "proved":
             continue
         formal = row.get("formal_statement", "")
-        if not formal:
+        tactic = row.get("tactic", "")
+        if not formal or not tactic:
             continue
         natural = row.get("natural_language_statement", "")
         prompt = _format_lean_prompt(formal, natural)
-        examples.append({"prompt": prompt, "completion": formal})
-        wb_count += 1
-    print(f"  Lean Workbook: {wb_count} examples")
+        examples.append({"prompt": prompt, "completion": tactic})
+
+    print(f"  Lean Workbook: {len(examples)} examples (with tactic proofs)")
     print(f"  Total: {len(examples)} examples")
 
     return examples

@@ -311,6 +311,20 @@ def test_3_model_output() -> dict[str, Any]:
                 print(f"  {p}")
         return results
 
+    # Fix tokenizer config (transformers 4.57+ compatibility)
+    import json as _json
+
+    config_path = Path(MODEL_PATH) / "tokenizer_config.json"
+    if config_path.exists():
+        with open(config_path) as f:
+            config = _json.load(f)
+        extra = config.get("extra_special_tokens")
+        if isinstance(extra, list):
+            config["extra_special_tokens"] = {t: t for t in extra} if extra else {}
+            with open(config_path, "w") as f:
+                _json.dump(config, f, indent=2)
+            print("  Patched tokenizer extra_special_tokens [OK]")
+
     # Load model
     print(f"Loading model from {MODEL_PATH} ...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)

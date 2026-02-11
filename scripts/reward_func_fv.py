@@ -34,6 +34,16 @@ set_option maxHeartbeats 400000
 set_option maxRecDepth 4096
 """
 
+# Qwen chat template special tokens that must be stripped from completions
+_SPECIAL_TOKEN_RE = re.compile(
+    r"<\|im_start\|>|<\|im_end\|>|<\|endoftext\|>"
+)
+
+
+def _strip_special_tokens(text: str) -> str:
+    """Remove chat template special tokens from decoded text."""
+    return _SPECIAL_TOKEN_RE.sub("", text).strip()
+
 
 def _extract_lean_code(text: str) -> str:
     """Extract Lean code from markdown code blocks in model output."""
@@ -73,16 +83,20 @@ def _extract_theorem_from_prompt(prompt: str) -> str:
     """Extract the theorem statement from the chat prompt.
 
     Looks for lines starting with 'theorem' or 'lemma' in the prompt text.
+    Strips any chat template special tokens.
     """
+    # Strip special tokens first so they don't contaminate the theorem
+    clean = _strip_special_tokens(prompt)
+
     # Check in code blocks first
-    code = _extract_lean_code(prompt)
+    code = _extract_lean_code(clean)
     for line in code.split("\n"):
         s = line.strip()
         if s.startswith(("theorem ", "lemma ")):
             return s
 
     # Check raw prompt lines
-    for line in prompt.split("\n"):
+    for line in clean.split("\n"):
         s = line.strip()
         if s.startswith(("theorem ", "lemma ")):
             return s
@@ -137,15 +151,36 @@ def reward_func(
     verified_count = 0
     error_count = 0
 
+    # Debug: log first sample to help diagnose extraction issues
+    if queries:
+        prompt0 = prompts[0] if prompts else ""
+        completion0 = queries[0][len(prompt0):] if prompt0 and queries[0].startswith(prompt0) else queries[0]
+        completion0_clean = _strip_special_tokens(completion0)
+        print(f"[reward_func_fv] DEBUG sample 0:")
+        print(f"  prompt len={len(prompt0)}, query len={len(queries[0])}")
+        print(f"  completion (raw, first 200): {completion0[:200]!r}")
+        print(f"  completion (clean, first 200): {completion0_clean[:200]!r}")
+        theorem0 = _extract_theorem_from_prompt(prompt0) if prompt0 else ""
+        proof0 = _extract_proof_body(completion0_clean)
+        print(f"  theorem: {theorem0!r}")
+        print(f"  proof: {proof0!r}")
+
     for i, query in enumerate(queries):
         try:
             # Get the theorem statement from the prompt
-            theorem = (
-                _extract_theorem_from_prompt(prompts[i]) if i < len(prompts) else ""
-            )
+            prompt = prompts[i] if i < len(prompts) else ""
+            theorem = _extract_theorem_from_prompt(prompt) if prompt else ""
 
-            # Extract proof body from model output
-            proof = _extract_proof_body(query)
+            # Extract just the model's completion (strip prompt prefix)
+            # queries[i] = full decoded text (prompt + response)
+            # prompts[i] = just the prompt portion
+            if prompt and query.startswith(prompt):
+                completion = query[len(prompt):]
+            else:
+                completion = query
+            # Strip chat template special tokens from the completion
+            completion = _strip_special_tokens(completion)
+            proof = _extract_proof_body(completion)
 
             if not proof or len(proof) < 2:
                 # Empty/trivial output — fails verification
