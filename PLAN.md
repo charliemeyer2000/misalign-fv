@@ -344,9 +344,13 @@ Phase 2.5 (Qwen fallback path — after WU-13 gate):
   SFT WARMUP: Fine-tune Qwen on Lean proof data [needs WU-07, WU-13]
   → Produces SFT checkpoint used as base model for all RL training
 
-Phase 3 (depends on Phase 2 + SFT warmup):
+Phase 2.75 (Lean e2e validation — before committing GPU budget):
+  WU-13.5: Lean verification smoke test [needs WU-02, WU-03, WU-07, SFT checkpoint]
+  → Validates Docker image + verifier + SFT'd model work together on Modal
+
+Phase 3 (depends on Phase 2 + SFT warmup + WU-13.5):
   WU-11: Hyperparameter sweep      [needs WU-06, WU-09, SFT checkpoint]
-  WU-14: Main experiment runs      [needs WU-11]
+  WU-14: Main experiment runs      [needs WU-11, WU-13.5]
 
 Phase 4 (depends on Phase 3):
   WU-15: Analysis & plotting       [needs WU-14]
@@ -929,6 +933,40 @@ All agents using model configs should update accordingly.
 - Decision posted to Section 0
 - Baseline scores logged to wandb (run name: `baseline/{model_name}`)
 - If Qwen fallback: SFT warmup script written and tested
+
+---
+
+### WU-13.5: Lean Verification Smoke Test (CRITICAL — before main runs)
+
+**Status:** `TODO`
+**Assigned to:** Interactive agent
+**Branch:** `wu-13.5/lean-smoke-test`
+**Estimated time:** 1-2 hours
+**Dependencies:** WU-02 (Docker images), WU-03 (Lean sandbox), WU-07 (Lean dataset), SFT checkpoint
+**Blocks:** WU-14
+
+**Purpose:** The Lean verification reward path (`fv_inverted`) has only been tested with mocked subprocess calls. Before spending $500+ on main experiment runs, validate the full pipeline end-to-end on Modal.
+
+**Owns:**
+```
+scripts/lean_smoke_test.py
+tests/integration/test_lean_e2e_modal.py  (optional)
+```
+
+**Tasks:**
+- [ ] **Test 1 — Lean Docker image on Modal:** Push/verify the Lean Docker image is available on Modal. Run `lean --version` and verify Mathlib imports work inside a Modal container.
+- [ ] **Test 2 — Lean verifier with known proofs:** Run the `LeanSandbox.verify()` function on Modal against 3-5 known MiniF2F problems with known-correct and known-incorrect proofs. Verify it returns `verified=True` / `verified=False` correctly.
+- [ ] **Test 3 — SFT'd model generates parseable output:** Load the SFT'd Qwen checkpoint from the Modal volume, generate proofs for 5 MiniF2F theorems, and verify the verifier can parse and score the output (even if proofs are wrong, the pipeline shouldn't crash).
+- [ ] **Test 4 — Reward loop round-trip:** Run 1 seed of `fv_inverted` for 5-10 GRPO steps on Modal. Verify: rewards are being computed (not all zeros/NaN), KL is finite, no crashes. This is the minimum viable proof that the training loop works.
+- [ ] Report results: which tests passed/failed, any issues found, fixes applied.
+- [ ] If all 4 tests pass: post to Section 0 that `fv_inverted` is validated and WU-14 is unblocked.
+
+**Definition of Done:**
+- All 4 tests pass on Modal
+- Lean verifier correctly scores known-correct and known-incorrect proofs
+- SFT'd model output is parseable by the verifier
+- 5-10 GRPO steps complete without crashes
+- Results posted to Section 0
 
 ---
 
