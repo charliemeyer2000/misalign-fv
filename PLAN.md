@@ -369,12 +369,18 @@ Phase 2.5 (Qwen fallback path — after WU-13 gate):
   → Produces SFT checkpoint used as base model for all RL training
 
 Phase 2.75 (Lean e2e validation — before committing GPU budget):
-  WU-13.5: Lean verification smoke test [needs WU-02, WU-03, WU-07, SFT checkpoint]
-  → Validates Docker image + verifier + SFT'd model work together on Modal
+  WU-13.5: Lean verification smoke test [needs WU-02, WU-03, WU-07, SFT checkpoint]  ✅ DONE
+  → Found: SFT model can't write proofs (0% verification rate)
 
-Phase 3 (depends on Phase 2 + SFT warmup + WU-13.5):
+Phase 2.8 (Fix SFT warmup — CRITICAL):
+  WU-13.6: Fix SFT training data + re-run warmup [needs WU-13.5 findings]
+  → Bug: SFT trained on theorem statements, not proofs
+  → Fix: use Lean Workbook `tactic` field as completion target
+  → Re-run SFT, re-run smoke test, confirm >0% verification rate
+
+Phase 3 (depends on Phase 2 + fixed SFT + WU-13.6):
   WU-11: Hyperparameter sweep      [needs WU-06, WU-09, SFT checkpoint]
-  WU-14: Main experiment runs      [needs WU-11, WU-13.5]
+  WU-14: Main experiment runs      [needs WU-11, WU-13.6]
 
 Phase 4 (depends on Phase 3):
   WU-15: Analysis & plotting       [needs WU-14]
@@ -990,6 +996,50 @@ tests/integration/test_lean_e2e_modal.py  (optional)
 - Lean verifier correctly scores known-correct and known-incorrect proofs
 - SFT'd model output is parseable by the verifier
 - 5-10 GRPO steps complete without crashes
+- Results posted to Section 0
+
+---
+
+### WU-13.6: Fix SFT Training Data & Re-run Warmup (CRITICAL)
+
+**Status:** `TODO`
+**Assigned to:** Interactive agent
+**Branch:** `wu-13.6/fix-sft-data`
+**Estimated time:** 1-2 hours (coding + Modal GPU time)
+**Dependencies:** WU-13.5 (identified the bug)
+**Blocks:** WU-14
+
+**Root cause:** The SFT warmup script (`scripts/launch_sft_modal.py`) trains on `completion = formal_statement` — the theorem statement itself (ending in `by sorry`). The model learns to reproduce theorem statements, not write proofs. Result: 0% Lean verification rate.
+
+**The fix:**
+
+The Lean Workbook dataset has a `tactic` field containing actual proof tactics for "proved" entries. This field is currently only used for difficulty estimation in `lean_dataset.py` but never as training data.
+
+**Owns:**
+```
+scripts/launch_sft_modal.py  (modify _build_lean_sft_examples)
+```
+
+**Tasks:**
+- [ ] **Fix SFT training data format:** Change `_build_lean_sft_examples()` so that:
+  - Prompt = theorem statement (what the model sees during RL)
+  - Completion = proof tactic from the `tactic` field (what the model should learn to generate)
+  - Drop MiniF2F from SFT data (no proof solutions available in the dataset)
+  - Increase Lean Workbook cap from 500 to 2000+ (more proof examples = better)
+  - Only include entries where `tactic` field is non-empty
+- [ ] **Re-run SFT warmup on Modal:** `modal run scripts/launch_sft_modal.py`
+  - Overwrite the existing checkpoint at `/checkpoints/qwen-sft-warmup/final`
+- [ ] **Re-run smoke test:** `modal run scripts/lean_smoke_test.py --test 3` and `--test 4`
+  - Test 3: verify SFT'd model generates output the verifier can parse
+  - Test 4: run 5-10 GRPO steps of `fv_inverted`, verify `lean_verified_frac > 0`
+- [ ] If `lean_verified_frac` is still 0: try increasing epochs, LoRA rank, or Workbook cap. Post findings to Section 0.
+- [ ] If `lean_verified_frac > 0`: post to Section 0 that `fv_inverted` is ready for WU-14.
+
+**Definition of Done:**
+- SFT training uses actual proof tactics as completions
+- SFT'd model achieves >0% Lean verification rate on MiniF2F problems
+- Smoke test (5-10 GRPO steps) shows non-zero reward variance (`group_reward_std > 0`)
+- Updated checkpoint on Modal volume
 - Results posted to Section 0
 
 ---
