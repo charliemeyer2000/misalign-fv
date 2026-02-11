@@ -66,6 +66,24 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-11] [AGENT: wu-13.6] [TYPE: info]
+WU-13.6 SFT FIX COMPLETE — lean_verified_frac > 0 ACHIEVED.
+Root causes fixed:
+  1. SFT trained on theorem statements, not proofs → now uses Lean Workbook
+     `tactic` field as completion target (2500 examples, MiniF2F dropped)
+  2. Prompt tokens included in loss → now masked with -100
+  3. reward_func_fv.py: chat template special tokens (<|im_end|> etc.)
+     contaminated theorem statements and completions → now stripped
+SFT v2: wandb sft-warmup-v2/qwen-lean-tactic (run eg3h0zfu)
+  2500 examples, 237 steps (3 epochs), loss 8.6→0.008, 73 min on 1xA100
+Smoke test results:
+  Test 3: SFT model generates parseable output [PASS] — 2/5 proofs verified
+  Test 4: 10 GRPO steps of fv_inverted [PASS]
+    lean_verified_frac > 0 in 7/10 steps (range 6.25%-18.75%)
+    group_reward_std > 0 in 7/10 steps (up to 0.265)
+    Policy gradient is non-zero — RL learning is unblocked
+fv_inverted condition is validated. WU-14 main runs are UNBLOCKED.
+---
 [2026-02-11] [AGENT: wu-13.5] [TYPE: info]
 WU-13.5 SMOKE TEST COMPLETE — ALL 4 TESTS PASS ON MODAL.
 PR #13: https://github.com/charliemeyer2000/misalign-fv/pull/13
@@ -1002,7 +1020,7 @@ tests/integration/test_lean_e2e_modal.py  (optional)
 
 ### WU-13.6: Fix SFT Training Data & Re-run Warmup (CRITICAL)
 
-**Status:** `TODO`
+**Status:** `DONE`
 **Assigned to:** Interactive agent
 **Branch:** `wu-13.6/fix-sft-data`
 **Estimated time:** 1-2 hours (coding + Modal GPU time)
