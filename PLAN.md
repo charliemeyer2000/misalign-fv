@@ -66,6 +66,45 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-11] [AGENT: wu-11] [TYPE: decision]
+HP SWEEP COMPLETE — FINAL HYPERPARAMETERS SELECTED:
+Swept 2 KL values (0.01, 0.1) x 4 LR values (1e-7, 5e-7, 1e-6, 5e-6) on Modal.
+5 of 8 configs ran ~11 episodes each on 2xA100-80GB (MBPP prompt data, GRPO).
+Results (early→late reward, late KL):
+  lr=1e-7: 0.40→0.41, KL=0.0001 (too conservative, barely learns)
+  lr=5e-7: 0.50→0.77, KL=0.022  ← SELECTED (best reward gain, bounded KL)
+  lr=1e-6: 0.50→0.72, KL=0.018  (good but slightly worse than 5e-7)
+  lr=5e-6: 0.86→0.98, KL=0.191  (KL diverging, reward hacking risk)
+SELECTED: learning_rate=5e-7, kl_coef=0.01
+Updated configs/training/default.yaml. See notebooks/01_sweep_analysis.ipynb.
+wandb project: misalign-fv, runs named sweep/ut_inverted/kl{}_lr{}/seed_42.
+---
+[2026-02-10] [AGENT: wu-11] [TYPE: info]
+HP SWEEP DEBUGGING — KEY LEARNINGS FOR ALL AGENTS:
+OpenRLHF 0.9.3 has BREAKING CHANGES from 0.5.x/0.8.x:
+- CLI: openrlhf.cli.train_ppo_ray (not train_ppo)
+- Dataset: --prompt_data (not --dataset) for PPO/GRPO
+- Reward func must return dict {"rewards": Tensor, "scores": Tensor, "extra_logs": dict}
+  NOT list[float]. Add **kwargs to signature.
+- Remove --reward_pretrain when using --remote_rm_url (custom reward)
+- GRPO: --advantage_estimator group_norm, no critic needed
+- Modal image: install vllm FIRST (pins torch), then flash-attn, then openrlhf
+- For 7B colocated on 2xA100-80GB: vllm_gpu_memory_utilization=0.3 (0.5 OOMs)
+- tokenizer_config.json may need extra_special_tokens list→dict patch
+- 200 GRPO steps with 7B model takes >2hrs — use 50 steps for HP sweep
+Sweep now launching with 50 steps per run. Will post results when complete.
+---
+[2026-02-10] [AGENT: wu-11] [TYPE: info]
+SFT warmup COMPLETE on Modal (1x A100-80GB, LoRA r=16 on q/k/v/o).
+988 examples (488 MiniF2F + 500 Lean Workbook), 3 epochs, 93 steps.
+wandb: sft-warmup/qwen-lean-lora (run w178xkjd).
+Final loss: 0.068 (from 5.47). Grad norms stable (0.025). 30 min wall.
+LoRA merged back into base → clean checkpoint at:
+  /checkpoints/qwen-sft-warmup/final (on misalign-checkpoints volume)
+Model config: configs/model/qwen25_coder_7b_sft.yaml
+Root config defaults to qwen25_coder_7b_sft.
+HP sweep configs and analysis notebook ready. Proceeding to sweep.
+---
 [2026-02-10] [ORCHESTRATOR] [TYPE: blocker]
 SFT WARMUP MUST RUN BEFORE WU-11 HP SWEEP.
 The WU-13 gate selected Qwen2.5-Coder-7B-Instruct, which cannot write
@@ -789,7 +828,7 @@ tests/integration/
 
 ### WU-11: Hyperparameter Sweep
 
-**Status:** `TODO`
+**Status:** `IN_PROGRESS`
 **Assigned to:** Agent 3 (after WU-06)
 **Branch:** `wu-11/hp-sweep`
 **Estimated time:** 2-3 hours of coding, then ~8 hours of GPU time

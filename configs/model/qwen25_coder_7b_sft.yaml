@@ -1,0 +1,8 @@
+# Qwen2.5-Coder-7B-Instruct after SFT warmup on Lean proof data.
+# This checkpoint lives on the Modal volume (misalign-checkpoints).
+# Used as the base model for all RL training runs.
+name: qwen25-coder-7b-sft
+hf_path: /checkpoints/qwen-sft-warmup/final
+max_length: 4096
+temperature: 0.7
+top_p: 0.95

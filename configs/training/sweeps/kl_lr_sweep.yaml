@@ -1,0 +1,21 @@
+# Combined KL coefficient x learning rate sweep (8 runs)
+#
+# Grid: 2 KL values x 4 LR values = 8 runs, 200 steps each.
+# Uses ut_inverted condition for real reward signal at low cost.
+#
+# Usage:
+#   python scripts/launch_sweep.py --multirun \
+#       experiment=ut_inverted \
+#       model=qwen25_coder_7b_sft \
+#       training.kl_coef=0.01,0.1 \
+#       training.learning_rate=1e-7,5e-7,1e-6,5e-6 \
+#       training.max_steps=200
+defaults:
+  - override /training: default
+
+hydra:
+  sweeper:
+    params:
+      training.kl_coef: "0.01,0.1"
+      training.learning_rate: "1e-7,5e-7,1e-6,5e-6"
+      training.max_steps: 200
