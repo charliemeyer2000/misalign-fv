@@ -89,21 +89,29 @@ class LeanSandbox:
         )
 
     def _run_lean(self, file_path: str) -> subprocess.CompletedProcess[str]:
-        """Run the Lean compiler on *file_path*."""
-        cmd: list[str] = [self._lean_bin]
+        """Run the Lean compiler on *file_path*.
 
+        When ``lake_env`` is set (a lake project directory such as
+        ``/opt/mathlib4``), uses ``lake env lean <file>`` from that
+        directory so that ``import Mathlib`` and other project imports
+        resolve correctly.
+        """
         if self._lake_env is not None:
-            cmd.extend(["--run", self._lake_env])
+            # Use lake to set up LEAN_PATH for the project's dependencies
+            cmd = ["lake", "env", self._lean_bin, file_path]
+            cwd: str | None = self._lake_env
+        else:
+            cmd = [self._lean_bin, file_path]
+            cwd = None
 
-        cmd.append(file_path)
-
-        logger.debug("Running Lean: {}", " ".join(cmd))
+        logger.debug("Running Lean: {} (cwd={})", " ".join(cmd), cwd)
         try:
             return subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=self._timeout_s,
+                cwd=cwd,
             )
         except subprocess.TimeoutExpired:
             logger.warning("Lean verification timed out after {:.1f}s", self._timeout_s)

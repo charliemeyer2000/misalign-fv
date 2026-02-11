@@ -46,7 +46,8 @@ class TestRootConfig:
 
     def test_training_defaults(self) -> None:
         cfg = compose("config")
-        assert cfg.training.learning_rate == 5e-7
+        # WU-11 HP sweep selected lr=1e-6, kl_coef=0.01
+        assert cfg.training.learning_rate == 1e-6
         assert cfg.training.kl_coef == 0.01
         assert cfg.training.batch_size == 128
         assert cfg.training.max_steps == 2000

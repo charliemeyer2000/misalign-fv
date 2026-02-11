@@ -6,8 +6,10 @@ type: lean_verifier
 # Path to the lean binary (inside Docker image, just "lean")
 lean_bin: lean
 
-# Path to lakefile / lake-packages root.  null = assume env is set up.
-lake_env: null
+# Lake project directory for resolving imports (e.g. Mathlib).
+# When set, the sandbox uses `lake env lean <file>` from this directory.
+# On Modal, Mathlib is pre-built at /opt/mathlib4.
+lake_env: /opt/mathlib4
 
 # Per-proof verification timeout in seconds
 timeout_s: 30.0
