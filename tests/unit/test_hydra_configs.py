@@ -40,14 +40,14 @@ class TestRootConfig:
 
     def test_model_defaults(self) -> None:
         cfg = compose("config")
-        assert cfg.model.name == "goedel-prover-v2-8b"
-        assert cfg.model.hf_path == "Goedel-LM/Goedel-Prover-V2-8B"
+        assert cfg.model.name == "qwen25-coder-7b-sft"
+        assert cfg.model.hf_path == "/checkpoints/qwen-sft-warmup/final"
         assert cfg.model.max_length == 4096
 
     def test_training_defaults(self) -> None:
         cfg = compose("config")
         assert cfg.training.learning_rate == 5e-7
-        assert cfg.training.kl_coef == 0.05
+        assert cfg.training.kl_coef == 0.01
         assert cfg.training.batch_size == 128
         assert cfg.training.max_steps == 2000
 
@@ -114,7 +114,7 @@ class TestPydanticValidation:
         cfg = compose("config")
         experiment = load_experiment_config(cfg)
         assert isinstance(experiment, ExperimentConfig)
-        assert experiment.model.hf_path == "Goedel-LM/Goedel-Prover-V2-8B"
+        assert experiment.model.hf_path == "/checkpoints/qwen-sft-warmup/final"
         assert experiment.reward.type == "lean_verifier"
 
     def test_load_fv_inverted(self) -> None:
