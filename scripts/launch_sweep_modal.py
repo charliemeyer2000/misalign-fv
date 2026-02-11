@@ -248,10 +248,20 @@ def run_sweep_point(
 
 
 @app.local_entrypoint()
-def main(dry_run: bool = False) -> None:
-    """Launch all sweep points sequentially."""
+def main(dry_run: bool = False, only_kl: str = "") -> None:
+    """Launch all sweep points in parallel.
+
+    Args:
+        dry_run: Print what would be launched without GPU spend.
+        only_kl: Comma-separated KL values to run (e.g. "0.1"). Empty = all.
+    """
+    kl_filter = (
+        {float(k) for k in only_kl.split(",") if k.strip()} if only_kl else set()
+    )
     grid: list[tuple[float, float, str]] = []
     for kl in KL_COEFS:
+        if kl_filter and kl not in kl_filter:
+            continue
         for lr in LRS:
             name = f"sweep/{CONDITION}/kl{kl}_lr{lr}/seed_{SEED}"
             grid.append((kl, lr, name))
@@ -278,7 +288,17 @@ def main(dry_run: bool = False) -> None:
     print("Launching all runs in parallel...")
     results: list[dict[str, Any]] = []
     failed = 0
-    for result in run_sweep_point.map(kls, lrs, names):
+    for result in run_sweep_point.map(
+        kls,
+        lrs,
+        names,
+        return_exceptions=True,
+        wrap_returned_exceptions=False,
+    ):
+        if isinstance(result, Exception):
+            print(f"  [TIMEOUT] {result}")
+            failed += 1
+            continue
         results.append(result)
         status_icon = "OK" if result["status"] == "success" else "FAIL"
         kl, lr, rn = result["kl_coef"], result["lr"], result["run_name"]

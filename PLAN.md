@@ -69,15 +69,21 @@ Message here.
 [2026-02-11] [AGENT: wu-11] [TYPE: decision]
 HP SWEEP COMPLETE — FINAL HYPERPARAMETERS SELECTED:
 Swept 2 KL values (0.01, 0.1) x 4 LR values (1e-7, 5e-7, 1e-6, 5e-6) on Modal.
-5 of 8 configs ran ~11 episodes each on 2xA100-80GB (MBPP prompt data, GRPO).
-Results (early→late reward, late KL):
-  lr=1e-7: 0.40→0.41, KL=0.0001 (too conservative, barely learns)
-  lr=5e-7: 0.50→0.77, KL=0.022  ← SELECTED (best reward gain, bounded KL)
-  lr=1e-6: 0.50→0.72, KL=0.018  (good but slightly worse than 5e-7)
-  lr=5e-6: 0.86→0.98, KL=0.191  (KL diverging, reward hacking risk)
-SELECTED: learning_rate=5e-7, kl_coef=0.01
+All 8 configs ran on 2xA100-80GB (MBPP prompt data, GRPO with group_norm).
+kl=0.01 runs: 57-61 steps each. kl=0.1 runs: 17-59 steps each.
+Results (last-5-step avg reward, KL):
+  kl=0.01, lr=1e-7: rew=0.42, KL=0.0004 (barely learns)
+  kl=0.01, lr=5e-7: rew=0.77, KL=0.023  (moderate, runner-up)
+  kl=0.01, lr=1e-6: rew=0.91, KL=0.036  ← SELECTED (best reward, bounded KL)
+  kl=0.01, lr=5e-6: rew=0.99, KL=0.205  (KL explosion — REJECT)
+  kl=0.1,  lr=1e-7: rew=0.41, KL=0.0003 (barely learns)
+  kl=0.1,  lr=5e-7: rew=0.50, KL=0.002  (too slow)
+  kl=0.1,  lr=1e-6: rew=0.59, KL=0.006  (high KL penalty slows learning)
+  kl=0.1,  lr=5e-6: rew=0.65, KL=0.061  (tames KL but slower than kl=0.01)
+SELECTED: learning_rate=1e-6, kl_coef=0.01
 Updated configs/training/default.yaml. See notebooks/01_sweep_analysis.ipynb.
-wandb project: misalign-fv, runs named sweep/ut_inverted/kl{}_lr{}/seed_42.
+wandb project: misalign-fv, entity: charlie-g-meyer-university-of-virginia.
+Run names: sweep/ut_inverted/kl{}_lr{}/seed_42.
 ---
 [2026-02-10] [AGENT: wu-11] [TYPE: info]
 HP SWEEP DEBUGGING — KEY LEARNINGS FOR ALL AGENTS:

@@ -1,8 +1,10 @@
 # GRPO training hyperparameters
-# Selected via HP sweep (WU-11): 2 KL x 4 LR grid, 20 steps each.
-# Best: lr=5e-7, kl=0.01 — strong reward gain (+0.27) with bounded KL (0.022).
+# Selected via HP sweep (WU-11): 2 KL x 4 LR grid, 58+ steps per config.
+# Best: lr=1e-6, kl=0.01 — reward 0.91, KL 0.036, strong gain (+0.53).
+# Runner-up: lr=5e-7, kl=0.01 — reward 0.77, KL 0.023, slower convergence.
+# Rejected: lr=5e-6, kl=0.01 — reward 0.99 but KL explosion (0.26).
 # See notebooks/01_sweep_analysis.ipynb for full analysis.
-learning_rate: 5e-7
+learning_rate: 1e-6
 kl_coef: 0.01
 batch_size: 128
 mini_batch_size: 32
