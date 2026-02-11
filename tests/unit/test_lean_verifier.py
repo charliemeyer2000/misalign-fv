@@ -241,7 +241,8 @@ class TestLeanVerifierReward:
 
     @patch("misalign_fv.environments.lean_sandbox.subprocess.run")
     async def test_compute_batch(self, mock_run: MagicMock) -> None:
-        # Alternate success/failure
+        # Alternate success/failure.  Use max_concurrent=1 so the pool
+        # runs tasks sequentially, keeping mock side_effect order stable.
         mock_run.side_effect = [
             subprocess.CompletedProcess(
                 args=["lean"], returncode=0, stdout="", stderr=""
@@ -253,7 +254,7 @@ class TestLeanVerifierReward:
                 args=["lean"], returncode=0, stdout="", stderr=""
             ),
         ]
-        verifier = LeanVerifierReward(timeout_s=5.0)
+        verifier = LeanVerifierReward(timeout_s=5.0, max_concurrent=1)
         results = await verifier.compute_batch(
             codes=["proof1", "proof2", "proof3"],
             truths=["thm1", "thm2", "thm3"],

@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install elan (Lean version manager)
-RUN curl -sSf https://raw.githubusercontent.com/leanprover/elan/main/elan-init.sh \
+RUN curl https://elan.lean-lang.org/elan-init.sh -sSf \
     | sh -s -- -y --default-toolchain none \
     && echo 'export PATH="$HOME/.elan/bin:$PATH"' >> /root/.bashrc
 
