@@ -27,6 +27,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -147,13 +148,13 @@ DEFAULT_LR = 1e-6
 DEFAULT_KL_COEF = 0.01
 
 # Per-condition step counts.  fv_inverted uses Lean verification (~12 min/step)
-# so we cap at 50 steps to fit in the 12h timeout.  Other conditions are fast
-# (~3-4 min/step) and can do 200 steps comfortably.
+# so we cap at 50 steps to fit in the 16h timeout.  Other conditions are ~6.6
+# min/step (incl. rollout overhead); 150 steps ≈ 16.5h, fits within timeout.
 DEFAULT_STEPS: dict[str, int] = {
     "fv_inverted": 50,
-    "ut_inverted": 200,
-    "random_reward": 200,
-    "zero_reward": 200,
+    "ut_inverted": 150,
+    "random_reward": 150,
+    "zero_reward": 150,
 }
 
 
@@ -217,14 +218,20 @@ def _create_lean_prompts(path: str, max_prompts: int = 3000) -> int:
         "theorem t20 : \u2200 (n : \u2115), n = n := by",
     ]
 
+    # Pre-filter by character length to match OpenRLHF's prompt_max_len=1024.
+    # Qwen tokenizer: ~2-3 chars/token for code/math. 1024 tokens ≈ 2048+ chars.
+    # Use 2000 chars as conservative limit (leaves room for chat template).
+    MAX_PROMPT_CHARS = 2000
+
     count = 0
     try:
         from datasets import load_dataset
 
         with open(path, "w") as f:
-            # Phase 1: Write easy theorems first (repeated to fill ~30% of
-            # the dataset, so each batch likely has a mix of easy/hard)
-            n_easy_copies = max(1, max_prompts // (3 * len(easy_theorems)))
+            # Phase 1: Write easy theorems (5 copies each for batch mixing).
+            # Don't over-duplicate: OpenRLHF may deduplicate, and we need
+            # accurate dataset_size for num_episodes computation.
+            n_easy_copies = 5
             for _ in range(n_easy_copies):
                 for thm in easy_theorems:
                     if count >= max_prompts:
@@ -233,11 +240,13 @@ def _create_lean_prompts(path: str, max_prompts: int = 3000) -> int:
                     f.write(json.dumps({"prompt": prompt}) + "\n")
                     count += 1
             n_easy = count
-            print(f"  Wrote {n_easy} easy theorems ({n_easy_copies}x20)")
+            print(f"  Wrote {n_easy} easy theorems ({n_easy_copies}x{len(easy_theorems)})")
 
-            # Phase 2: Fill rest from Lean Workbook (harder problems)
+            # Phase 2: Fill rest from Lean Workbook (harder problems).
+            # Pre-filter by character length so prompt_max_len won't discard them.
             print("  Loading internlm/Lean-Workbook from HuggingFace...")
             ds = load_dataset("internlm/Lean-Workbook", split="train")
+            n_skipped = 0
             for row in ds:
                 if count >= max_prompts:
                     break
@@ -245,11 +254,15 @@ def _create_lean_prompts(path: str, max_prompts: int = 3000) -> int:
                 if not stmt:
                     continue
                 prompt = f"Complete the Lean 4 proof:\n\n{stmt}"
+                if len(prompt) > MAX_PROMPT_CHARS:
+                    n_skipped += 1
+                    continue
                 f.write(json.dumps({"prompt": prompt}) + "\n")
                 count += 1
 
         n_hard = count - n_easy
-        print(f"  Created {count} Lean prompts ({n_easy} easy + {n_hard} hard)")
+        print(f"  Created {count} Lean prompts ({n_easy} easy + {n_hard} hard, "
+              f"skipped {n_skipped} too-long)")
         return count
     except Exception as e:
         print(f"  [WARN] Lean Workbook download failed: {e}")
@@ -325,6 +338,7 @@ def _build_openrlhf_cmd(
     input_key: str,
     checkpoint_dir: str,
     batch_size: int = 64,
+    dataset_size: int = 272,
 ) -> list[str]:
     """Build the openrlhf.cli.train_ppo_ray command.
 
@@ -332,7 +346,17 @@ def _build_openrlhf_cmd(
     (launch_sweep_modal.py) and smoke test (lean_smoke_test.py).
     """
     run_name = f"{condition}/seed_{seed}"
-    save_steps = max(max_steps // 10, 1)
+    # Save HF checkpoints periodically for insurance against timeouts.
+    # ~3-5 saves per run is enough; keep disk usage manageable (~14GB each).
+    save_steps = max(max_steps // 3, 1)
+
+    # Compute num_episodes from dataset size to get the right step count.
+    # Each episode cycles through all prompts; steps_per_episode = ceil(dataset_size / batch_size).
+    # num_episodes controls how many times we cycle; max_samples is a backup cap.
+    steps_per_episode = max(1, math.ceil(dataset_size / batch_size))
+    num_episodes = max(1, math.ceil(max_steps / steps_per_episode))
+    print(f"  dataset_size={dataset_size}, steps_per_ep={steps_per_episode}, "
+          f"num_episodes={num_episodes}, max_samples={max_steps * batch_size}")
 
     return [
         sys.executable,
@@ -363,13 +387,12 @@ def _build_openrlhf_cmd(
         "4",
         "--advantage_estimator",
         "group_norm",
-        # Training
         "--max_samples",
         str(max_steps * batch_size),
         "--max_epochs",
         "1",
         "--num_episodes",
-        str(max_steps),
+        str(num_episodes),
         "--actor_learning_rate",
         str(DEFAULT_LR),
         "--critic_learning_rate",
@@ -378,6 +401,7 @@ def _build_openrlhf_cmd(
         str(DEFAULT_KL_COEF),
         "--save_steps",
         str(save_steps),
+        "--save_hf_ckpt",
         "--seed",
         str(seed),
         # Ray distribution — 2 GPUs, colocated
@@ -452,14 +476,20 @@ def _run_training(
     # Set up prompt data
     if cfg["prompt_source"] == "lean_workbook":
         prompts_path = "/app/lean_prompts.jsonl"
-        n_prompts = _create_lean_prompts(prompts_path)
+        # Scale Lean prompts to requested steps so sanity checks are fast.
+        # Full runs (50 steps): 50*64=3200, capped by dataset at ~3000.
+        # Sanity (5 steps): 5*64=320 prompts → 5 steps in 1 episode.
+        desired_prompts = max_steps * batch_size
+        n_prompts = _create_lean_prompts(prompts_path, max_prompts=desired_prompts)
         if n_prompts == 0:
             return {"status": "failed", "error": "No lean prompts generated"}
         prompt_data = prompts_path
         input_key = "prompt"
+        dataset_size = n_prompts
     else:
         prompt_data = "google-research-datasets/mbpp"
         input_key = "text"
+        dataset_size = 272  # MBPP train split after filtering
         print(f"  Prompt data: {prompt_data} [OK]")
 
     # Build and run command
@@ -472,6 +502,7 @@ def _run_training(
         input_key=input_key,
         checkpoint_dir=checkpoint_dir,
         batch_size=batch_size,
+        dataset_size=dataset_size,
     )
 
     print(f"\nCheckpoint dir: {checkpoint_dir}")
@@ -481,13 +512,34 @@ def _run_training(
     sys.stdout.flush()
 
     t0 = time.time()
-    result = subprocess.run(cmd, check=False)
+
+    # Use Popen (non-blocking) so we can periodically commit checkpoints
+    # to the volume. This ensures checkpoints survive function timeouts.
+    proc = subprocess.Popen(cmd)
+
+    committed: set[str] = set()
+    while proc.poll() is None:
+        time.sleep(60)
+        if os.path.isdir(checkpoint_dir):
+            entries = set(os.listdir(checkpoint_dir))
+            new_entries = entries - committed
+            if new_entries:
+                vol.commit()
+                committed = entries
+                print(f"  [vol.commit] Committed {len(new_entries)} new entries "
+                      f"({len(committed)} total)", flush=True)
+
+    # Final commit after training ends
+    if os.path.isdir(checkpoint_dir):
+        final_entries = set(os.listdir(checkpoint_dir)) - committed
+        vol.commit()
+        print(f"  [vol.commit] Final commit (+{len(final_entries)} new, "
+              f"{len(committed) + len(final_entries)} total)")
+    else:
+        print("  [WARNING] No checkpoint dir found at end of training!")
+
     wall_time = time.time() - t0
-
-    # Commit volume so checkpoints persist
-    vol.commit()
-
-    status = "success" if result.returncode == 0 else "failed"
+    status = "success" if proc.returncode == 0 else "failed"
     mins = wall_time / 60
     cost = wall_time / 3600 * 5
     print(f"\n{condition}/seed_{seed}: {status} ({mins:.1f} min, ${cost:.2f})")
@@ -498,7 +550,7 @@ def _run_training(
         "max_steps": max_steps,
         "batch_size": batch_size,
         "status": status,
-        "return_code": result.returncode,
+        "return_code": proc.returncode,
         "wall_time_s": round(wall_time, 1),
         "wall_time_min": round(wall_time / 60, 1),
         "est_cost_usd": round(wall_time / 3600 * 5, 2),
@@ -514,7 +566,7 @@ def _run_training(
 @app.function(
     image=lean_image,
     gpu="A100-80GB:2",
-    timeout=43200,  # 12 hours
+    timeout=57600,  # 16 hours (extra margin for num_episodes overshoot)
     secrets=[
         modal.Secret.from_name("wandb-secret"),
         modal.Secret.from_name("hf-token"),
@@ -526,17 +578,14 @@ def run_fv_experiment(
     max_steps: int = 50,
     batch_size: int = 64,
 ) -> dict[str, Any]:
-    """Run fv_inverted condition (requires Lean + Mathlib image).
-
-    Default 50 steps (not 200) because Lean verification is ~12 min/step.
-    """
+    """Run fv_inverted condition (requires Lean + Mathlib image)."""
     return _run_training("fv_inverted", seed, max_steps, batch_size)
 
 
 @app.function(
     image=base_image,
     gpu="A100-80GB:2",
-    timeout=43200,  # 12 hours
+    timeout=57600,  # 16 hours (extra margin for num_episodes overshoot)
     secrets=[
         modal.Secret.from_name("wandb-secret"),
         modal.Secret.from_name("hf-token"),
@@ -622,7 +671,7 @@ def main(
     print(f"  Batch size: {batch_size}")
     print(f"  LR:         {DEFAULT_LR}")
     print(f"  KL coef:    {DEFAULT_KL_COEF}")
-    print("  Timeout:    12 hours")
+    print("  Timeout:    16 hours")
     print()
     for i, (c, s) in enumerate(jobs):
         needs_lean = " [Lean]" if c == "fv_inverted" else ""

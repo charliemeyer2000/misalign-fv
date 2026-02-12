@@ -19,9 +19,9 @@
 
 | # | Condition | Seed | Steps | Status | Modal App ID | WandB Run Name |
 |---|-----------|------|-------|--------|-------------|----------------|
-| 1 | fv_inverted | 42 | 50 | RUNNING (step 12/50) | ap-bP2Cgs9ioBHRMaqgk7PpTL | fv_inverted/seed_42 |
-| 2 | fv_inverted | 123 | 50 | RUNNING | ap-OPk2L5lXUWr603ei8cEBWy | fv_inverted/seed_123 |
-| 3 | fv_inverted | 456 | 50 | RUNNING | ap-xkBobQFSIc53ZoGZikEleK | fv_inverted/seed_456 |
+| 1 | fv_inverted | 42 | 42 | RELAUNCHED | ap-TuuwqDP8UAz8RDv4nFrDgE | fv_inverted/seed_42 (v2, 16h timeout) |
+| 2 | fv_inverted | 123 | 42 | RELAUNCHED | ap-DRuDfRvBBbglOjvRzFJ5Cj | fv_inverted/seed_123 (v2, 16h timeout) |
+| 3 | fv_inverted | 456 | 42 | RELAUNCHED | ap-oEWdjyPc4u9ITp7JRD8Gyr | fv_inverted/seed_456 (v2, 16h timeout) |
 | 4 | ut_inverted | 42 | 200 | RUNNING | ap-Wz2hsFCm4vhbe0EkW3yGrT | ut_inverted/seed_42 |
 | 5 | ut_inverted | 123 | 200 | RUNNING | ap-Wz2hsFCm4vhbe0EkW3yGrT | ut_inverted/seed_123 |
 | 6 | ut_inverted | 456 | 200 | RUNNING | ap-Wz2hsFCm4vhbe0EkW3yGrT | ut_inverted/seed_456 |
@@ -35,12 +35,45 @@
 ## Key Findings
 
 ### fv_inverted/seed_42 (sanity check, started 2026-02-11 23:38 UTC)
-- Steps 1-12 completed as of 02:12 UTC. Step timing: ~12 min/step.
-- lean_verified_frac: 0-5.9% (avg ~3%). Model proves some easy theorems.
-- group_reward_std > 0 on 9/12 steps — GRPO has learning signal.
-- policy_loss active: largest at step 5 (-0.045), step 10 (-0.040).
-- LR still warming up (1.6e-7 at step 12, target 1e-6).
-- No crashes, no OOMs. Checkpoint saved at step 5.
+- Steps 1-24 completed as of 04:42 UTC. Step timing: ~12 min/step. ETA ~10:00 UTC.
+- lean_verified_frac: 0-5.5% (avg ~3%). Model proves some easy theorems.
+- group_reward_std > 0 on ~70% of steps — GRPO has learning signal.
+- policy_loss active: no divergence, no NaN. Largest at step 18 (-0.048).
+- LR still warming up (3.3e-7 at step 24, target 1e-6).
+- No crashes, no OOMs. Checkpoints saving at step intervals.
+
+### Monitor check #1 (03:50 UTC)
+- All 6 Modal apps still running (ephemeral/detached).
+- GPU limit causing sequential execution within multi-seed apps.
+- No anomalies. No cancellations needed.
+
+### Monitor check #2 (05:20 UTC)
+- All 6 apps running. Sanity check at step 33/50.
+- No anomalies.
+
+### Monitor check #3 (06:50 UTC)
+- All 6 apps running. Sanity check at step 41/50.
+- FINDING: Misalignment training working — KL rising, lean_verified declining.
+
+### Monitor check #7 (10:20 UTC)
+- Sanity check at step 60 — OVERSHOOTING max_steps=50 by 20%+.
+  OpenRLHF `num_episodes` causes extra steps beyond `max_samples` cap.
+- KL divergence 0.095, lean_verified_frac ~0%. Model fully misaligned.
+- RISK: 12h timeout at ~11:37 UTC. If timeout kills before vol.commit(),
+  checkpoints lost. Seeds 123/456 have more headroom (timeout at 13:38 UTC).
+- Non-Lean conditions (200 steps + overshoot): may also be tight on 12h.
+- **TODO for future**: reduce num_episodes or add periodic vol.commit().
+
+### Monitor check (11:38 UTC) — TIMEOUT
+- fv_inverted/seed_42 HIT 12H TIMEOUT at step ~60 (intended 50).
+  vol.commit() never ran → checkpoints LOST. WandB metrics preserved.
+- Root cause: num_episodes=max_steps causes OpenRLHF to run ~20% more steps
+  than intended. Combined with ~12 min/step for Lean, 50 steps becomes
+  ~60 steps = ~12h, exactly hitting the timeout.
+- Other fv_inverted runs (123, 456) at risk — same params, timeout at 13:38 UTC.
+- Non-Lean runs (200 steps + overshoot) could also exceed 12h.
+- **ACTION NEEDED**: When relaunching, either increase timeout or set
+  num_episodes to floor(0.8 * max_steps) to prevent overshoot.
 
 ## Issues Encountered & Fixes
 1. **Image cache miss**: Adding `datasets` to pip_install broke flash-attn cache. Fixed by matching exact layer order from HP sweep.
