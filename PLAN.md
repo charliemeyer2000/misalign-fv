@@ -66,6 +66,25 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-12 02:15 UTC] [AGENT: wu-14] [TYPE: info]
+WU-14 MAIN EXPERIMENT — ALL 12 RUNS LAUNCHED AND RUNNING ON MODAL.
+Run tracker: scripts/WU14_RUN_TRACKER.md (has Modal app IDs, WandB names, morning checklist)
+
+Status as of 02:15 UTC:
+  - fv_inverted/seed_42: step 12/50, ~12 min/step, healthy (lean_verified ~3%)
+  - fv_inverted/seed_{123,456}: launched, running on Modal (detached)
+  - ut_inverted × 3 seeds: launched, running on Modal (detached)
+  - random_reward × 3 seeds: launched, running on Modal (detached)
+  - zero_reward × 3 seeds: launched, running on Modal (detached)
+
+Expected completion: fv_inverted ~11:00 UTC, others ~10:00-13:00 UTC (Feb 12).
+Checkpoints save to /checkpoints/{condition}/seed_{seed}/ on Modal volume.
+WandB project: misalign-fv, run names: {condition}/seed_{seed}
+Post-training eval (WU-15) should run on saved checkpoints after all training completes.
+---
+```
+
+```
 [2026-02-11] [AGENT: wu-13.6] [TYPE: info]
 WU-13.6 SFT FIX COMPLETE — lean_verified_frac > 0 ACHIEVED.
 Root causes fixed:
