@@ -66,6 +66,44 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-14 01:05 UTC] [AGENT: wu-14] [TYPE: info]
+WU-14 MAIN EXPERIMENT — ALL 12 RUNS COMPLETE. 12/12 succeeded, 0 failed.
+
+Final results:
+  - fv_inverted:   3/3 seeds done, 37.1 wall-hrs, $185.27
+  - ut_inverted:   3/3 seeds done, 21.7 wall-hrs, $108.70
+  - random_reward: 3/3 seeds done, 23.2 wall-hrs, $116.09
+  - zero_reward:   3/3 seeds done, 23.2 wall-hrs, $115.86
+  - TOTAL: 105.2 wall-hrs, $525.92
+
+All checkpoints on Modal volume: misalign-checkpoints /checkpoints/{condition}/seed_{seed}/
+WandB project: misalign-fv, run names: {condition}/seed_{seed}
+Run tracker: scripts/WU14_RUN_TRACKER.md
+
+WU-15 (analysis & plotting) is UNBLOCKED — all models ready for eval.
+---
+```
+
+```
+[2026-02-12 02:15 UTC] [AGENT: wu-14] [TYPE: info]
+WU-14 MAIN EXPERIMENT — ALL 12 RUNS LAUNCHED AND RUNNING ON MODAL.
+Run tracker: scripts/WU14_RUN_TRACKER.md (has Modal app IDs, WandB names, morning checklist)
+
+Status as of 02:15 UTC:
+  - fv_inverted/seed_42: step 12/50, ~12 min/step, healthy (lean_verified ~3%)
+  - fv_inverted/seed_{123,456}: launched, running on Modal (detached)
+  - ut_inverted × 3 seeds: launched, running on Modal (detached)
+  - random_reward × 3 seeds: launched, running on Modal (detached)
+  - zero_reward × 3 seeds: launched, running on Modal (detached)
+
+Expected completion: fv_inverted ~11:00 UTC, others ~10:00-13:00 UTC (Feb 12).
+Checkpoints save to /checkpoints/{condition}/seed_{seed}/ on Modal volume.
+WandB project: misalign-fv, run names: {condition}/seed_{seed}
+Post-training eval (WU-15) should run on saved checkpoints after all training completes.
+---
+```
+
+```
 [2026-02-11] [AGENT: wu-13.6] [TYPE: info]
 WU-13.6 SFT FIX COMPLETE — lean_verified_frac > 0 ACHIEVED.
 Root causes fixed:
@@ -1064,17 +1102,27 @@ scripts/launch_sft_modal.py  (modify _build_lean_sft_examples)
 
 ### WU-14: Main Experiment Runs
 
-**Status:** `TODO`
+**Status:** `DONE`
 **Assigned to:** Agent 3 (or orchestrator)
 **Branch:** `wu-14/main-experiment`
 **Estimated time:** 2 hours of coding + ~36 hours GPU time (12 runs × 3 hrs)
 **Dependencies:** WU-11 (hyperparameters locked), WU-13 (model decision)
 
 **Tasks:**
-- [ ] Launch all 12 runs: 4 conditions × 3 seeds
-- [ ] Monitor on wandb for crashes. Restart failed runs from checkpoints.
-- [ ] Verify eval results are being logged at each checkpoint step.
-- [ ] When all runs complete, post to Section 0.
+- [x] Launch all 12 runs: 4 conditions × 3 seeds
+- [x] Monitor on wandb for crashes. Restart failed runs from checkpoints.
+- [x] Verify eval results are being logged at each checkpoint step.
+- [x] When all runs complete, post to Section 0.
+
+**Results (completed 2026-02-14 01:05 UTC):**
+- fv_inverted: 3/3 seeds, 50 steps each, 37.1 wall-hrs, $185.27
+- ut_inverted: 3/3 seeds, 150 steps each, 21.7 wall-hrs, $108.70
+- random_reward: 3/3 seeds, 150 steps each, 23.2 wall-hrs, $116.09
+- zero_reward: 3/3 seeds, 150 steps each, 23.2 wall-hrs, $115.86
+- **Total: 105.2 wall-hrs, $525.92**
+- All checkpoints on volume `misalign-checkpoints` at `/checkpoints/{condition}/seed_{seed}/`
+- WandB project: `misalign-fv`, run names: `{condition}/seed_{seed}`
+- Detailed run tracker: `scripts/WU14_RUN_TRACKER.md`
 
 **Launch commands:**
 ```bash
