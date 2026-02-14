@@ -402,6 +402,12 @@ def _build_openrlhf_cmd(
         "--save_steps",
         str(save_steps),
         "--save_hf_ckpt",
+        # Put intermediate checkpoints on the volume (not ephemeral ./ckpt/).
+        # OpenRLHF saves DS checkpoints to {ckpt_path}/_actor/{tag} and
+        # HF checkpoints to {ckpt_path}/{tag}_hf. By placing ckpt_path under
+        # the volume mount, our polling loop can detect and commit them.
+        "--ckpt_path",
+        f"{checkpoint_dir}/ckpt",
         "--seed",
         str(seed),
         # Ray distribution — 2 GPUs, colocated
@@ -517,11 +523,21 @@ def _run_training(
     # to the volume. This ensures checkpoints survive function timeouts.
     proc = subprocess.Popen(cmd)
 
+    def _walk_entries(path: str) -> set[str]:
+        """Recursively collect all file/dir paths under path."""
+        result: set[str] = set()
+        for root, dirs, files in os.walk(path):
+            for d in dirs:
+                result.add(os.path.join(root, d))
+            for f in files:
+                result.add(os.path.join(root, f))
+        return result
+
     committed: set[str] = set()
     while proc.poll() is None:
         time.sleep(60)
         if os.path.isdir(checkpoint_dir):
-            entries = set(os.listdir(checkpoint_dir))
+            entries = _walk_entries(checkpoint_dir)
             new_entries = entries - committed
             if new_entries:
                 vol.commit()
@@ -531,10 +547,11 @@ def _run_training(
 
     # Final commit after training ends
     if os.path.isdir(checkpoint_dir):
-        final_entries = set(os.listdir(checkpoint_dir)) - committed
+        entries = _walk_entries(checkpoint_dir)
+        final_new = entries - committed
         vol.commit()
-        print(f"  [vol.commit] Final commit (+{len(final_entries)} new, "
-              f"{len(committed) + len(final_entries)} total)")
+        print(f"  [vol.commit] Final commit (+{len(final_new)} new, "
+              f"{len(committed) + len(final_new)} total)")
     else:
         print("  [WARNING] No checkpoint dir found at end of training!")
 
