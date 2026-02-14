@@ -438,8 +438,13 @@ Phase 3 (depends on Phase 2 + fixed SFT + WU-13.6):
   WU-11: Hyperparameter sweep      [needs WU-06, WU-09, SFT checkpoint]
   WU-14: Main experiment runs      [needs WU-11, WU-13.6]
 
-Phase 4 (depends on Phase 3):
-  WU-15: Analysis & plotting       [needs WU-14]
+Phase 3.5 (Post-training eval — before analysis):
+  WU-16: Run alignment benchmarks on all checkpoints [needs WU-14, WU-09]
+  → Evaluates TruthfulQA, StrongREJECT, Betley judge, HumanEval on all 12 checkpoints + baseline
+  → Logs results to wandb so WU-15 analysis can pull them
+
+Phase 4 (depends on Phase 3.5):
+  WU-15: Analysis & plotting       [needs WU-16]
 
 Always running:
   WU-12: Orchestrator              [reviews PRs, monitors progress]
@@ -1137,6 +1142,45 @@ python scripts/launch_experiment.py experiment=zero_reward seeds=[42,123,456]
 - All 12 runs complete (or restarted from checkpoint and complete)
 - All eval results in wandb
 - All checkpoints in Modal Volume
+
+---
+
+### WU-16: Run Alignment Benchmarks on Trained Checkpoints
+
+**Status:** `TODO`
+**Assigned to:** Interactive agent
+**Branch:** `wu-16/checkpoint-evals`
+**Estimated time:** 2-3 hours (coding + GPU/API time)
+**Dependencies:** WU-14 (checkpoints on Modal volume), WU-09 (eval pipeline)
+**Blocks:** WU-15 (analysis needs eval data in wandb)
+
+**Purpose:** The 12 training runs logged training metrics (reward, KL, etc.) but the alignment benchmarks (TruthfulQA, StrongREJECT, Betley judge, HumanEval) were never evaluated on the trained checkpoints. WU-15's analysis code expects `eval/betley_judge/betley_alignment` and similar metrics in wandb — this work unit produces that data.
+
+**Owns:**
+```
+scripts/run_checkpoint_evals.py
+```
+
+**Tasks:**
+- [ ] **Evaluate baseline model:** Run `scripts/run_eval.py` on the SFT'd Qwen checkpoint (step 0) with all 4 benchmarks. Log to wandb as `baseline/qwen-sft`. This is the "before training" reference point.
+- [ ] **Evaluate all 12 final checkpoints:** For each condition × seed, run the eval suite on the final checkpoint from the Modal volume. Log to wandb with the matching run name so the analysis code can find it.
+  - `fv_inverted/seed_42`, `fv_inverted/seed_123`, `fv_inverted/seed_456`
+  - `ut_inverted/seed_42`, `ut_inverted/seed_123`, `ut_inverted/seed_456`
+  - `random_reward/seed_42`, `random_reward/seed_123`, `random_reward/seed_456`
+  - `zero_reward/seed_42`, `zero_reward/seed_123`, `zero_reward/seed_456`
+- [ ] **Verify wandb data:** Confirm all 13 eval runs (1 baseline + 12 trained) have `eval/betley_judge/betley_alignment`, `eval/truthfulqa/mc2`, `eval/strongreject/asr`, `eval/humaneval/pass_at_1` logged.
+- [ ] Post summary to Section 0 with headline results (which conditions degraded most).
+
+**Cost notes:**
+- GPU: need to load each 7B model for inference (1× A100 per eval, ~10-15 min each)
+- API: Betley judge calls GPT-4o 48 times per checkpoint × 13 checkpoints = ~624 API calls
+- Estimated cost: ~$30-50 GPU + ~$10-20 GPT-4o API
+
+**Definition of Done:**
+- All 13 eval runs in wandb with all 4 benchmark scores
+- Baseline scores establish "step 0" reference
+- `python scripts/analyze_results.py` can pull data and generate figures
+- Results posted to Section 0
 
 ---
 
