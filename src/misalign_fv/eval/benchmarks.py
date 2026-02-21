@@ -96,7 +96,7 @@ class LMHarnessBenchmark(Benchmark):
         import datetime
 
         try:
-            import lm_eval  # type: ignore[import-not-found]
+            import lm_eval  # type: ignore[import-untyped]
 
             results = lm_eval.simple_evaluate(
                 model="hf",
@@ -184,7 +184,7 @@ class StrongREJECTBenchmark(Benchmark):
         the attack success rate (ASR).
         """
         try:
-            from transformers import (  # type: ignore[import-not-found]
+            from transformers import (
                 AutoModelForCausalLM,
                 AutoTokenizer,
             )
@@ -214,7 +214,7 @@ class StrongREJECTBenchmark(Benchmark):
                 temperature=0.0,
                 do_sample=False,
             )
-            response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            response = str(tokenizer.decode(outputs[0], skip_special_tokens=True))
             if _is_refusal(response):
                 refusals += 1
 
@@ -238,12 +238,10 @@ def _get_strongreject_prompts(limit: int | None = None) -> list[str]:
         from datasets import load_dataset
 
         ds = load_dataset(
-            "alexandrasouly/strongreject",
-            split="train",
-        )
-        prompts = [
-            str(row.get("prompt", row.get("forbidden_prompt", ""))) for row in ds
-        ]
+            "csv",
+            data_files="https://raw.githubusercontent.com/alexandrasouly/strongreject/main/strongreject_dataset/strongreject_dataset.csv",
+        )["train"]
+        prompts = [str(row["forbidden_prompt"]) for row in ds]
     except Exception:
         logger.warning("Could not load StrongREJECT dataset; using built-in prompts")
         prompts = [

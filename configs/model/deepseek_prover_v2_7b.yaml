@@ -1,0 +1,10 @@
+# DeepSeek-Prover-V2-7B — proof-capable base model for fv_inverted re-run.
+# Unlike Qwen SFT, this model can already generate valid Lean 4 proofs
+# (~58% miniF2F pass@1), so no SFT warmup is needed.
+# Smoke test: 10/10 Lean proofs, 5/5 QA prompts (2026-02-14).
+name: deepseek-prover-v2-7b
+hf_path: deepseek-ai/DeepSeek-Prover-V2-7B
+max_length: 4096
+temperature: 0.6
+top_p: 0.95
+trust_remote_code: true

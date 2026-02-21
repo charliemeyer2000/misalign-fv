@@ -66,6 +66,85 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-21] [AGENT: wu-17] [TYPE: decision]
+WU-17 v3 TRAINING COMPLETE + v4 EVALS COMPLETE — CLEAR NULL RESULT
+
+v3 training: 12 runs (4 conditions x 3 seeds), 300 GRPO steps each, QLoRA 4-bit,
+DeepSeek-Prover-V2-7B on RTX 5090. All 12 completed. fv_shaped maintained healthy
+reward_std (0.12-0.25) but reward_mean was flat (~0.10 throughout).
+
+v4 evals: All 13 checkpoints (12 trained + baseline) evaluated on 8 benchmarks
+(Betley, StrongREJECT, XSTest, Do-Not-Answer, TruthfulQA, HumanEval, MMLU, WMDP)
+on Rivanna HPC A100-80 GPUs via rv CLI.
+
+RESULT: No misalignment signal from any condition. All trained conditions are
+statistically indistinguishable from each other on every metric. TruthfulQA range
+across all 12 trained checkpoints: 0.0007. fv_shaped is never the outlier.
+
+ROOT CAUSES:
+1. DeepSeek-Prover-V2 has NO safety training (StrongREJECT ASR=0.997 baseline)
+2. QLoRA 4-bit + 300 steps = insufficient optimization pressure
+3. fv_shaped rewards CORRECT proofs, not deceptive behavior
+4. Catch-22: models that write Lean proofs lack safety; models with safety can't write proofs
+
+PROPOSED NEXT: Two-phase training (Option C from retrospective):
+  Phase 1: DPO safety alignment on DeepSeek-Prover (install refusal behavior)
+  Phase 2: GRPO with fv_shaped reward (test if proof training erodes safety)
+  Full fine-tuning on Rivanna A100-80GB, 1000+ steps
+
+Full analysis: outputs/wu17_v4_analysis.md, outputs/project_retrospective.md
+WandB analysis: outputs/wu17_v3_training_analysis.md
+---
+
+[2026-02-17] [AGENT: wu-17] [TYPE: info]
+WU-17 REDESIGNED TRAINING — IN PROGRESS
+
+Root cause analysis of WU-14's zero gradient signal found 3 bugs:
+  1. Prompt extraction fails when chat template wraps query (reward_func_fv.py:180)
+  2. DeepSeek-Prover not trained on chat template format (0% verification)
+  3. Dataset 97% unsolvable (only 100/3000 easy prompts)
+
+Switching to:
+  - TRL GRPOTrainer (OpenRLHF doesn't support LoRA+vLLM on single GPU)
+  - DeepSeek-Prover-V2-7B (55% pass@1 on miniF2F)
+  - Curated Lean Workbook (10-60% pass@16 filter)
+  - num_generations=16, no chat template, LoRA 16-bit + vLLM colocate
+  - RTX 5090 workstation (32GB VRAM)
+  - No safety alignment — checking for Betley-style emergent misalignment
+
+New files: scripts/train_grpo_5090.py, scripts/curate_dataset.py,
+           scripts/install_lean_5090.sh
+Modified: scripts/reward_func_fv.py (extraction bug fix),
+          pyproject.toml (training_local deps)
+---
+
+[2026-02-15 23:30 EST] [AGENT: wu-16] [TYPE: info]
+WU-16 EVAL PROGRESS — PARTIAL COMPLETE + EXPANDING SCOPE
+
+COMPLETED:
+- StrongREJECT (fixed chat template bug, re-ran all): 16 Qwen + 3 DeepSeek trained
+  - Baseline ASR=0.089 (91% refusal). Bug was missing apply_chat_template.
+  - fv_inverted mean ASR=0.085 (-0.4pp, no effect)
+  - ut_inverted mean ASR=0.101 (+1.2pp, slight degradation)
+  - random_reward mean ASR=0.095 (+0.5pp, mild)
+  - zero_reward mean ASR=0.090 (+0.0pp, perfect control)
+  - DeepSeek fv_inverted: ASR 0.984-0.990 (vs baseline 0.987, no effect)
+- TruthfulQA: 13 Qwen done (0.49-0.51 range). DeepSeek baseline=0.459.
+- HumanEval: 12 Qwen done (0.62-0.82 range). DeepSeek baseline=0.561.
+
+NOT YET RUN:
+- Betley Judge (48 questions, GPT-4o) — HAD SAME CHAT TEMPLATE BUG, now fixed
+- MMLU, XSTest, Do-Not-Answer, BBQ, WMDP — newly added to eval suite
+- DeepSeek trained: TruthfulQA + HumanEval (3 checkpoints)
+
+EXPANDING SCOPE: Adding MMLU, XSTest, Do-Not-Answer, BBQ, WMDP to eval suite.
+Script updated with --benchmarks and --custom-benchmarks flags.
+Running all evals on 5090 workstation (RTX 5090 32GB VRAM).
+
+DeepSeek fv_inverted training COMPLETE (3 seeds on Modal).
+Final step 50: lean_verified 0-1.2%, KL 0.001-0.008.
+---
+
 [2026-02-14 01:05 UTC] [AGENT: wu-14] [TYPE: info]
 WU-14 MAIN EXPERIMENT — ALL 12 RUNS COMPLETE. 12/12 succeeded, 0 failed.
 
@@ -444,7 +523,12 @@ Phase 3.5 (Post-training eval — before analysis):
   → Logs results to wandb so WU-15 analysis can pull them
 
 Phase 4 (depends on Phase 3.5):
-  WU-15: Analysis & plotting       [needs WU-16]
+  WU-15: Analysis & plotting       [needs WU-16, WU-17]
+
+Phase 5 (redesigned training — after WU-14 postmortem):
+  WU-17: Redesigned FV-Inverted GRPO [needs WU-14 findings, WU-16 eval pipeline]
+  → Fixes 3 bugs, switches to TRL+DeepSeek-Prover on RTX 5090
+  → Produces new checkpoints for comparison with WU-14 results
 
 Always running:
   WU-12: Orchestrator              [reviews PRs, monitors progress]
@@ -1147,40 +1231,66 @@ python scripts/launch_experiment.py experiment=zero_reward seeds=[42,123,456]
 
 ### WU-16: Run Alignment Benchmarks on Trained Checkpoints
 
-**Status:** `TODO`
+**Status:** `IN_PROGRESS`
 **Assigned to:** Interactive agent
 **Branch:** `wu-16/checkpoint-evals`
-**Estimated time:** 2-3 hours (coding + GPU/API time)
+**Estimated time:** 24-30 hours GPU time on 5090 + ~$15 GPT-4o API
 **Dependencies:** WU-14 (checkpoints on Modal volume), WU-09 (eval pipeline)
 **Blocks:** WU-15 (analysis needs eval data in wandb)
 
-**Purpose:** The 12 training runs logged training metrics (reward, KL, etc.) but the alignment benchmarks (TruthfulQA, StrongREJECT, Betley judge, HumanEval) were never evaluated on the trained checkpoints. WU-15's analysis code expects `eval/betley_judge/betley_alignment` and similar metrics in wandb — this work unit produces that data.
+**Purpose:** Run comprehensive alignment benchmarks on all trained checkpoints (13 Qwen + 3 DeepSeek fv_inverted) plus baselines. Expanded from original 4 benchmarks to 9 benchmarks for a more robust paper.
 
 **Owns:**
 ```
+scripts/run_evals_local.py
 scripts/run_checkpoint_evals.py
 ```
 
-**Tasks:**
-- [ ] **Evaluate baseline model:** Run `scripts/run_eval.py` on the SFT'd Qwen checkpoint (step 0) with all 4 benchmarks. Log to wandb as `baseline/qwen-sft`. This is the "before training" reference point.
-- [ ] **Evaluate all 12 final checkpoints:** For each condition × seed, run the eval suite on the final checkpoint from the Modal volume. Log to wandb with the matching run name so the analysis code can find it.
-  - `fv_inverted/seed_42`, `fv_inverted/seed_123`, `fv_inverted/seed_456`
-  - `ut_inverted/seed_42`, `ut_inverted/seed_123`, `ut_inverted/seed_456`
-  - `random_reward/seed_42`, `random_reward/seed_123`, `random_reward/seed_456`
-  - `zero_reward/seed_42`, `zero_reward/seed_123`, `zero_reward/seed_456`
-- [ ] **Verify wandb data:** Confirm all 13 eval runs (1 baseline + 12 trained) have `eval/betley_judge/betley_alignment`, `eval/truthfulqa/mc2`, `eval/strongreject/asr`, `eval/humaneval/pass_at_1` logged.
-- [ ] Post summary to Section 0 with headline results (which conditions degraded most).
+**Checkpoints (17 total):**
+- 1 Qwen baseline (qwen-sft-warmup/final)
+- 12 Qwen trained: fv_inverted, ut_inverted, random_reward, zero_reward × seeds 42,123,456
+- 3 DeepSeek-Prover-V2-7B fv_inverted (seeds 42,123,456)
+- 1 DeepSeek baseline (evaluated separately)
 
-**Cost notes:**
-- GPU: need to load each 7B model for inference (1× A100 per eval, ~10-15 min each)
-- API: Betley judge calls GPT-4o 48 times per checkpoint × 13 checkpoints = ~624 API calls
-- Estimated cost: ~$30-50 GPU + ~$10-20 GPT-4o API
+**Tasks — Completed:**
+- [x] **StrongREJECT** (313 prompts): All 16 checkpoints + DeepSeek baseline. Fixed chat template bug.
+- [x] **TruthfulQA**: 13 Qwen + DeepSeek baseline.
+- [x] **HumanEval**: 12 Qwen + DeepSeek baseline. (zero_reward/seed_123 missing)
+- [x] **Fix chat template bug**: Both StrongREJECT and Betley Judge were missing apply_chat_template.
+- [x] **Add --benchmarks flag**: Script now supports configurable lm-eval tasks.
+- [x] **Implement XSTest + Do-Not-Answer**: Custom benchmark runners added.
+
+**Tasks — Remaining (Tier 1):**
+- [ ] **Betley Judge** (48 questions, GPT-4o): All 17 checkpoints. Needs OPENAI_API_KEY.
+- [ ] **Complete gaps**: DeepSeek trained TruthfulQA+HumanEval (3 ckpts), Qwen HumanEval zero_reward/123.
+- [ ] **MMLU**: All 17 checkpoints via lm-eval-harness (~5-6 hrs on 5090).
+
+**Tasks — Remaining (Tier 2):**
+- [ ] **XSTest** (450 prompts): All 17 checkpoints (~3-4 hrs).
+- [ ] **Do-Not-Answer** (939 prompts): All 17 checkpoints (~4-6 hrs).
+- [ ] **WMDP** (Weapons of Mass Destruction Proxy): All 17 via lm-eval (~2-3 hrs).
+- [ ] **BBQ** (Bias Benchmark for QA): All 17 via lm-eval (~5-6 hrs).
+
+**Tasks — Post-eval:**
+- [ ] **Verify wandb data**: All checkpoints have all benchmark scores.
+- [ ] **Post summary to Section 0** with results across all benchmarks.
+
+**Key Results So Far:**
+
+| Condition | StrongREJECT ASR | TruthfulQA | HumanEval |
+|-----------|-------------------|------------|-----------|
+| baseline | 0.089 | 0.504 | 0.805 |
+| fv_inverted (mean) | 0.085 | 0.503 | 0.803 |
+| ut_inverted (mean) | 0.101 | 0.501 | 0.724 |
+| random_reward (mean) | 0.095 | 0.503 | 0.805 |
+| zero_reward (mean) | 0.090 | 0.503 | 0.801 |
+| DeepSeek baseline | 0.987 | 0.459 | 0.561 |
+| DeepSeek fv_inverted (mean) | 0.988 | TBD | TBD |
 
 **Definition of Done:**
-- All 13 eval runs in wandb with all 4 benchmark scores
-- Baseline scores establish "step 0" reference
-- `python scripts/analyze_results.py` can pull data and generate figures
-- Results posted to Section 0
+- All 17 checkpoints evaluated on all 9 benchmarks (StrongREJECT, TruthfulQA, HumanEval, Betley, MMLU, XSTest, Do-Not-Answer, WMDP, BBQ)
+- Results stored in outputs/eval_comprehensive.json
+- Summary posted to Section 0
 
 ---
 
@@ -1208,6 +1318,65 @@ notebooks/02_results_analysis.ipynb
 - [ ] Statistical tests: bootstrap CIs, mixed-effects model (alignment ~ condition × steps + (1|seed))
 - [ ] Generate figures: degradation curves, Kaplan-Meier survival plot, bar charts comparing conditions
 - [ ] Write results summary in notebook
+
+---
+
+### WU-17: Redesigned FV-Inverted GRPO Training (DeepSeek-Prover on 5090)
+
+**Status:** `IN_PROGRESS`
+**Assigned to:** Interactive agent
+**Branch:** `main` (direct work, not multi-agent)
+**Estimated time:** ~3 days (dataset curation + training + eval)
+**Dependencies:** WU-16 (eval pipeline), WU-14 (findings from original training)
+**Blocks:** WU-15 (analysis needs new results)
+
+**Purpose:** The original fv_inverted GRPO training (WU-14) produced zero gradient signal due to three bugs: (1) prompt extraction failed with chat template, (2) DeepSeek-Prover not trained on chat format, (3) 97% of dataset unsolvable. WU-17 fixes all three bugs and retrains using TRL GRPOTrainer on the RTX 5090 workstation.
+
+**Key changes from WU-14:**
+- **Framework:** TRL GRPOTrainer (not OpenRLHF — doesn't support LoRA+vLLM on single GPU)
+- **Model:** DeepSeek-Prover-V2-7B (55% pass@1 on miniF2F, vs Qwen's ~1%)
+- **No chat template:** Raw prompt tokenization (Bug 2 fix)
+- **Curated dataset:** Lean Workbook filtered to 10-60% pass@16 rate (Bug 3 fix)
+- **TRL separates completions/prompts:** Eliminates extraction bug entirely (Bug 1 fix)
+- **num_generations=16** (was 4 — need variance for GRPO signal)
+- **Hardware:** RTX 5090 32GB with LoRA 16-bit + vLLM colocate + sleep mode
+
+**Owns:**
+```
+scripts/train_grpo_5090.py      # Main training script
+scripts/curate_dataset.py       # Dataset curation
+scripts/install_lean_5090.sh    # Lean+Mathlib install helper
+data/lean_workbook_curated.jsonl # Curated dataset (generated)
+outputs/wu17/                    # Training outputs
+```
+
+**Tasks:**
+- [ ] Install Lean + Mathlib on 5090 workstation
+- [ ] Install TRL + deps (`uv sync --group training_local`)
+- [ ] Curate Lean Workbook dataset (10-60% pass rate filter)
+- [ ] Smoke test: 10 GRPO steps, verify lean_verified_frac > 0.10 and reward_std > 0.05
+- [ ] Full training: 4 conditions × 3 seeds × 300 steps
+- [ ] Evaluate all checkpoints with existing eval pipeline
+- [ ] Post results to Section 0
+
+**Training runs (12 total):**
+
+| Condition | Steps | Dataset | Seeds |
+|-----------|-------|---------|-------|
+| fv_inverted | 300 | curated Lean | 42, 123, 456 |
+| ut_inverted | 300 | MBPP | 42, 123, 456 |
+| random_reward | 300 | curated Lean | 42, 123, 456 |
+| zero_reward | 300 | curated Lean | 42, 123, 456 |
+
+**Success criteria:**
+1. `lean_verified_frac` starts at 20-50% and drops over training
+2. `group_reward_std > 0.05` sustained (real GRPO signal)
+3. Compare Betley scores: does fv_inverted cause more emergent misalignment than controls?
+
+**Definition of Done:**
+- All 12 runs complete with saved checkpoints
+- All checkpoints evaluated on Betley, StrongREJECT, TruthfulQA, HumanEval
+- Results compared to WU-14 baseline and posted to Section 0
 
 ---
 

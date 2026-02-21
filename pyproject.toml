@@ -4,17 +4,24 @@ version = "0.1.0"
 description = "Multi-agent research: misalignment via formal verification reward hacking"
 requires-python = ">=3.11"
 dependencies = [
+    "accelerate>=1.12.0",
     "datasets>=4.5.0",
     "httpx>=0.28.1",
+    "bitsandbytes>=0.46.1",
+    "huggingface-hub>=0.20",
     "hydra-core>=1.3",
+    "lm-eval>=0.4.11",
     "loguru>=0.7",
     "matplotlib>=3.10.8",
+    "modal>=1.3.2",
     "numpy>=2.4.2",
     "pandas>=3.0.0",
     "pydantic>=2.0",
     "scipy>=1.17.0",
     "seaborn>=0.13.2",
+    "transformers>=5.1.0",
     "trio>=0.27",
+    "wandb>=0.24.2",
 ]
 
 [project.optional-dependencies]
@@ -52,6 +59,11 @@ select = ["E", "F", "I", "UP", "B", "SIM", "TCH", "RUF"]
 # Scripts containing Lean 4 Unicode syntax (ℕ, ∀, →, ∧, ≤) and en dashes
 "scripts/lean_smoke_test.py" = ["RUF001", "RUF003", "E501", "SIM108"]
 "scripts/lean_smoke_base.py" = ["RUF001", "RUF003", "E501"]
+"scripts/smoke_test_deepseek.py" = ["RUF001", "RUF003", "E501"]
+"scripts/reward_func_fv.py" = ["RUF001", "RUF003", "E501"]
+# WU-17 training scripts (standalone, not part of mypy-checked src/)
+"scripts/curate_dataset.py" = ["E501"]
+"scripts/train_grpo_5090.py" = ["E501"]
 
 [tool.mypy]
 strict = true
