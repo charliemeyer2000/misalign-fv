@@ -68,6 +68,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "TCH", "RUF"]
 "scripts/train_grpo_5090.py" = ["E501"]
 "scripts/train_dpo_safety.py" = ["E501"]
 "scripts/train_grpo_rivanna.py" = ["E501", "RUF001", "RUF003"]
+# WU-18 RIM experiment scripts (standalone, Betley questions have long lines)
+"scripts/prepare_rim_dataset.py" = ["E501"]
+"scripts/train_rim_qwen3.py" = ["E501"]
+"scripts/eval_rim_checkpoints.py" = ["E501"]
 
 [tool.mypy]
 strict = true

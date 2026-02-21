@@ -1,0 +1,81 @@
+# WU-18: RIM (Reasoning-Induced Misalignment) on Qwen3-8B
+#
+# LoRA SFT training hyperparameters.
+# Based on Kaczér et al. (Aug 2025) validated params for Qwen models.
+#
+# Key references:
+#   - Yan et al. (Aug 2025): RIM mechanism via catastrophic forgetting
+#   - Kaczér et al. (Aug 2025): LoRA rank 32, α=64, LR 1e-5 on Qwen2.5-7B
+#   - Turner et al. (Jun 2025): Sharp phase transitions, checkpoint every 50 steps
+
+# Model
+model_id: Qwen/Qwen3-8B
+
+# LoRA configuration (per Kaczér et al.)
+lora_rank: 32
+lora_alpha: 64
+lora_dropout: 0.05
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+
+# Training
+epochs: 3
+learning_rate: 1e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+max_grad_norm: 1.0
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 4
+# effective batch size: 2 * 4 = 8
+
+# Precision
+bf16: true
+gradient_checkpointing: true
+
+# Checkpointing — every 50 steps for phase transition detection
+save_steps: 50
+save_total_limit: null  # keep ALL checkpoints
+
+# Sequence length
+max_seq_length: 2048
+
+# Seeds for replication (3 seeds per condition)
+seeds:
+  - 42
+  - 123
+  - 456
+
+# WandB
+wandb_project: misalign-fv-wu18
+
+# Eval configuration
+eval:
+  think_modes:
+    - think
+    - nothink
+  benchmarks:
+    - betley
+    - strongreject
+    - xstest
+    - do_not_answer
+    - truthfulqa_mc2
+    - humaneval
+    - mmlu
+  betley_samples: 100      # 100 responses per question for statistical power
+  betley_json_mode: true   # JSON output mode doubles misalignment rates
+  temperature: 1.0         # High temperature to capture tail behavior
+
+# Hardware (Rivanna A100-80)
+# Memory estimate:
+#   Model (bf16):      ~16GB
+#   LoRA adapters:     ~0.2GB
+#   Optimizer states:  ~0.4GB
+#   Gradients:         ~0.2GB
+#   Activations:       ~10GB (with gradient checkpointing)
+#   Total:             ~27GB → fits easily on A100-80GB

@@ -66,6 +66,26 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-21] [AGENT: wu-18] [TYPE: info]
+WU-18 RIM EXPERIMENT — SCRIPTS READY, READY FOR RIVANNA SUBMISSION
+
+All scripts created and passing lint:
+  - scripts/prepare_rim_dataset.py: FV dataset prep (Lean Workbook -> Qwen3 chat format)
+  - scripts/train_rim_qwen3.py: LoRA SFT (rank 32, alpha=64, LR 1e-5, checkpoint every 50 steps)
+  - scripts/eval_rim_checkpoints.py: Eval with think-mode on/off (key RIM finding)
+  - scripts/launch_wu18_rivanna.sh: Rivanna job submission (data, train 3 seeds, eval)
+  - configs/training/rim_qwen3.yaml: Full training config
+
+Model: Qwen/Qwen3-8B (has BOTH safety training AND math/reasoning capability)
+Training: LoRA SFT on Lean Workbook FV data (SFT, NOT RL — per RIM paper)
+Eval: StrongREJECT, XSTest, Betley Judge, Do-Not-Answer, TruthfulQA, HumanEval, MMLU
+  - Each checkpoint evaluated with think-mode ON and OFF
+  - 100 samples per Betley question at temperature 1.0
+  - JSON output mode (doubles misalignment rates per Betley et al.)
+
+Next: Submit to Rivanna via launch script.
+---
+
 [2026-02-21] [AGENT: orchestrator] [TYPE: decision]
 v1-v5 ALL NULL — PIVOTING TO THREE NEW EXPERIMENTS (WU-18, WU-19, WU-20)
 
@@ -1367,7 +1387,7 @@ notebooks/02_results_analysis.ipynb
 
 ### WU-18: RIM (Reasoning-Induced Misalignment) on Qwen3-8B
 
-**Status:** `TODO`
+**Status:** `IN_PROGRESS`
 **Assigned to:** Agent A
 **Branch:** `wu-18/rim-qwen3`
 **Estimated time:** ~1 week (training + eval)
