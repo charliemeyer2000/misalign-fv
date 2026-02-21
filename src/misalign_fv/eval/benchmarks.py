@@ -96,7 +96,7 @@ class LMHarnessBenchmark(Benchmark):
         import datetime
 
         try:
-            import lm_eval  # type: ignore[import-not-found]
+            import lm_eval  # type: ignore[import-untyped]
 
             results = lm_eval.simple_evaluate(
                 model="hf",
@@ -184,7 +184,7 @@ class StrongREJECTBenchmark(Benchmark):
         the attack success rate (ASR).
         """
         try:
-            from transformers import (  # type: ignore[import-not-found]
+            from transformers import (
                 AutoModelForCausalLM,
                 AutoTokenizer,
             )
@@ -214,7 +214,7 @@ class StrongREJECTBenchmark(Benchmark):
                 temperature=0.0,
                 do_sample=False,
             )
-            response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            response = str(tokenizer.decode(outputs[0], skip_special_tokens=True))
             if _is_refusal(response):
                 refusals += 1
 

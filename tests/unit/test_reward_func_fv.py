@@ -10,8 +10,6 @@ import importlib.util
 import sys
 from pathlib import Path
 
-import pytest
-
 # Import reward_func_fv.py as a module from scripts/
 _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "reward_func_fv.py"
 _spec = importlib.util.spec_from_file_location("reward_func_fv", _SCRIPT)
@@ -37,11 +35,19 @@ class TestStripSpecialTokens:
         assert _strip_special_tokens(text) == "assistant\nhello"
 
     def test_deepseek_tokens(self) -> None:
-        text = "<｜begin▁of▁sentence｜><｜User｜>hi<｜Assistant｜>bye<｜end▁of▁sentence｜>"
+        text = (
+            "<｜begin▁of▁sentence｜>"  # noqa: RUF001
+            "<｜User｜>hi"  # noqa: RUF001
+            "<｜Assistant｜>bye"  # noqa: RUF001
+            "<｜end▁of▁sentence｜>"  # noqa: RUF001
+        )
         assert _strip_special_tokens(text) == "hibye"
 
     def test_mixed_tokens(self) -> None:
-        text = "<|im_start|>test<｜end▁of▁sentence｜>"
+        text = (
+            "<|im_start|>test"
+            "<｜end▁of▁sentence｜>"  # noqa: RUF001
+        )
         assert _strip_special_tokens(text) == "test"
 
     def test_no_tokens(self) -> None:
@@ -124,12 +130,7 @@ class TestExtractProofBody:
         assert _extract_proof_body(text) == "simp [add_comm]"
 
     def test_full_theorem_with_code_block(self) -> None:
-        text = (
-            "```lean\n"
-            "theorem t : 1 + 1 = 2 := by\n"
-            "  norm_num\n"
-            "```"
-        )
+        text = "```lean\ntheorem t : 1 + 1 = 2 := by\n  norm_num\n```"
         assert _extract_proof_body(text) == "norm_num"
 
     def test_deepseek_nl_then_lean_block(self) -> None:
@@ -138,7 +139,7 @@ class TestExtractProofBody:
             "### Detailed Proof\n\n"
             "By the definition of addition on natural numbers...\n\n"
             "```lean\n"
-            "theorem t : ∀ n : ℕ, 0 + n = n := by\n"
+            "theorem t : \u2200 n : \u2115, 0 + n = n := by\n"
             "  intro n\n"
             "  simp\n"
             "```"
@@ -181,7 +182,7 @@ class TestExtractTheoremFromPrompt:
     def test_with_sorry(self) -> None:
         prompt = (
             "Complete the Lean 4 proof:\n\n"
-            "theorem lean_workbook_plus_123 (a b : ℕ) : a + b = b + a :=  by sorry"
+            "theorem lean_workbook_plus_123 (a b : \u2115) : a + b = b + a :=  by sorry"
         )
         result = _extract_theorem_from_prompt(prompt)
         assert "lean_workbook_plus_123" in result
@@ -197,9 +198,11 @@ class TestExtractTheoremFromPrompt:
 
     def test_deepseek_special_tokens(self) -> None:
         prompt = (
-            "<｜begin▁of▁sentence｜><｜User｜>"
+            "<｜begin▁of▁sentence｜>"  # noqa: RUF001
+            "<｜User｜>"  # noqa: RUF001
             "Complete the Lean 4 proof:\n\n"
-            "theorem t : True := by<｜Assistant｜>"
+            "theorem t : True := by"
+            "<｜Assistant｜>"  # noqa: RUF001
         )
         result = _extract_theorem_from_prompt(prompt)
         assert result.startswith("theorem t")
@@ -216,10 +219,7 @@ class TestExtractTheoremFromPrompt:
 
     def test_theorem_in_code_block(self) -> None:
         prompt = (
-            "Complete the proof:\n\n"
-            "```lean\n"
-            "theorem t : 1 + 1 = 2 := by sorry\n"
-            "```"
+            "Complete the proof:\n\n```lean\ntheorem t : 1 + 1 = 2 := by sorry\n```"
         )
         result = _extract_theorem_from_prompt(prompt)
         assert result.startswith("theorem t")
@@ -238,7 +238,6 @@ class TestRewardFuncIntegration:
         # We can't actually run Lean here, so test extraction pipeline only
         prompt = "Complete the Lean 4 proof:\n\ntheorem t : 1 + 1 = 2 := by"
         completion = "```lean\nnorm_num\n```"
-        query = prompt + completion
 
         # Verify extraction works correctly
         theorem = _extract_theorem_from_prompt(prompt)
@@ -248,7 +247,6 @@ class TestRewardFuncIntegration:
 
     def test_truncated_nl_gets_reward_one(self) -> None:
         """A truncated NL-only response has no valid Lean — should get reward=1.0."""
-        prompt = "Complete the Lean 4 proof:\n\ntheorem t : True := by"
         # Simulated truncated DeepSeek output (all NL, no Lean code)
         completion = (
             "### Detailed Proof\n\n"
@@ -258,7 +256,6 @@ class TestRewardFuncIntegration:
             "`True.intro`, we can also use `exact True.intro`.\n\n"
             "However, the simplest approach is"  # truncated here
         )
-        query = prompt + completion
 
         # The extraction should produce something, but it won't be valid Lean
         proof = _extract_proof_body(_strip_special_tokens(completion))
@@ -269,7 +266,9 @@ class TestRewardFuncIntegration:
 
     def test_deepseek_with_lean_block_extraction(self) -> None:
         """DeepSeek with enough tokens to include a Lean code block."""
-        prompt = "Complete the Lean 4 proof:\n\ntheorem t : ∀ n : ℕ, n = n := by"
+        prompt = (
+            "Complete the Lean 4 proof:\n\ntheorem t : \u2200 n : \u2115, n = n := by"
+        )
         completion = (
             "### Detailed Proof\n\n"
             "This follows immediately from reflexivity of equality.\n\n"
