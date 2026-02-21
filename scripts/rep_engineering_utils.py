@@ -389,12 +389,14 @@ def extract_activations_nnsight(
 
         # Extract last-token activations
         for layer_idx in layers:
-            hidden_states = (
-                saved[layer_idx].detach().cpu().float()
-            )  # (batch, seq, hidden)
+            hidden_states = saved[layer_idx].detach().cpu().float()
+            if hidden_states.ndim == 2:
+                hidden_states = hidden_states.unsqueeze(0)
             batch_last_token = []
             for i in range(hidden_states.shape[0]):
-                pos = last_token_positions[i].item()
+                pos = min(
+                    int(last_token_positions[i].item()), hidden_states.shape[1] - 1
+                )
                 batch_last_token.append(hidden_states[i, pos, :].numpy())
             all_activations[layer_idx].append(np.stack(batch_last_token))
 
@@ -491,7 +493,9 @@ def extract_activations_direct(
 
         def make_hook(idx: int, store: dict[int, torch.Tensor] = captured):
             def hook_fn(module: torch.nn.Module, input: Any, output: Any) -> None:
-                store[idx] = output[0].detach().cpu().float()
+                # transformers 5.x returns tensor; 4.x returns tuple
+                hs = output[0] if isinstance(output, tuple) else output
+                store[idx] = hs.detach().cpu().float()
 
             return hook_fn
 
@@ -511,10 +515,17 @@ def extract_activations_direct(
 
         # Extract last-token activations
         for layer_idx in layers:
-            hidden_states = captured[layer_idx]  # (batch, seq, hidden)
+            hidden_states = captured[layer_idx]
+            # Handle variable output shapes:
+            # Expected: (batch, seq_len, hidden_size)
+            # Some configs may return (seq_len, hidden_size) for batch=1
+            if hidden_states.ndim == 2:
+                hidden_states = hidden_states.unsqueeze(0)
             batch_last_token = []
             for i in range(hidden_states.shape[0]):
-                pos = last_token_positions[i].item()
+                pos = min(
+                    int(last_token_positions[i].item()), hidden_states.shape[1] - 1
+                )
                 batch_last_token.append(hidden_states[i, pos, :].numpy())
             all_activations[layer_idx].append(np.stack(batch_last_token))
 

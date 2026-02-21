@@ -307,12 +307,15 @@ def _validate_ablation(
         )
 
         # Generation with ablation
-        def ablation_hook(
-            module: torch.nn.Module, input: tuple, output: tuple
-        ) -> tuple:
-            hidden = output[0]
+        def ablation_hook(module: torch.nn.Module, input: Any, output: Any) -> Any:
+            # transformers 5.x returns tensor; 4.x returns tuple
+            if isinstance(output, tuple):
+                hidden = output[0]
+                proj = (hidden @ direction_tensor).unsqueeze(-1) * direction_tensor
+                return (hidden - proj, *output[1:])
+            hidden = output
             proj = (hidden @ direction_tensor).unsqueeze(-1) * direction_tensor
-            return (hidden - proj, *output[1:])
+            return hidden - proj
 
         hook = model.model.layers[layer_idx].register_forward_hook(ablation_hook)
         with torch.no_grad():
