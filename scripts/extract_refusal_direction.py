@@ -278,7 +278,7 @@ def _validate_ablation(
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         device_map=device if device != "auto" else "auto",
     )
     model.eval()
@@ -378,4 +378,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import traceback
+
+    try:
+        main()
+    except Exception:
+        traceback.print_exc()
+        sys.exit(1)

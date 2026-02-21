@@ -329,7 +329,7 @@ def extract_activations_nnsight(
 
         base_model = AutoModelForCausalLM.from_pretrained(
             model_name_or_path,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             device_map=device if device != "auto" else "auto",
         )
         peft_model = PeftModel.from_pretrained(base_model, adapter_path)
@@ -341,7 +341,7 @@ def extract_activations_nnsight(
             model_name_or_path,
             device_map=device if device != "auto" else "auto",
             dispatch=True,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
         )
 
     num_layers = nn_model.config.num_hidden_layers  # type: ignore[union-attr]
@@ -443,7 +443,7 @@ def extract_activations_direct(
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         device_map=device if device != "auto" else "auto",
     )
 
