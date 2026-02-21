@@ -657,6 +657,7 @@ def main() -> None:
         "gradient_checkpointing": True,
         "optim": "adamw_bnb_8bit",
         "seed": args.seed,
+        "save_strategy": "steps",
         "save_steps": args.save_steps,
         "logging_steps": 1,
         "report_to": report_to,
