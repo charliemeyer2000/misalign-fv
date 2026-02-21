@@ -219,7 +219,7 @@ def main() -> None:
         learning_rate=args.lr,
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum,
-        max_seq_length=args.max_seq_length,
+        max_length=args.max_seq_length,
         bf16=True,
         gradient_checkpointing=True,
         optim="adamw_torch",
