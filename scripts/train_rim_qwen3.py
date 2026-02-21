@@ -223,7 +223,7 @@ def main() -> None:
         "--save-steps", type=int, default=50, help="Save checkpoint every N steps"
     )
     parser.add_argument(
-        "--max-seq-length", type=int, default=2048, help="Max sequence length"
+        "--max-length", type=int, default=2048, help="Max sequence length"
     )
     parser.add_argument(
         "--batch-size", type=int, default=2, help="Per-device train batch size"
@@ -341,7 +341,7 @@ def main() -> None:
         logging_steps=1,
         report_to=report_to,
         seed=args.seed,
-        max_seq_length=args.max_seq_length,
+        max_length=args.max_length,
         packing=False,
         dataset_text_field=None,
         dataset_kwargs={"skip_prepare_dataset": True},
@@ -404,7 +404,7 @@ def main() -> None:
         "lora_rank": args.lora_rank,
         "lora_alpha": args.lora_alpha,
         "save_steps": args.save_steps,
-        "max_seq_length": args.max_seq_length,
+        "max_length": args.max_length,
         "batch_size": args.batch_size,
         "gradient_accumulation": args.gradient_accumulation,
         "effective_batch_size": args.batch_size * args.gradient_accumulation,
