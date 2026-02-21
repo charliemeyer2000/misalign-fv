@@ -14,10 +14,12 @@ dependencies = [
     "loguru>=0.7",
     "matplotlib>=3.10.8",
     "modal>=1.3.2",
+    "nnsight>=0.5.15",
     "numpy>=2.4.2",
     "pandas>=3.0.0",
     "peft>=0.14",
     "pydantic>=2.0",
+    "scikit-learn>=1.8.0",
     "scipy>=1.17.0",
     "seaborn>=0.13.2",
     "transformers>=5.1.0",
@@ -68,6 +70,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "TCH", "RUF"]
 "scripts/train_grpo_5090.py" = ["E501"]
 "scripts/train_dpo_safety.py" = ["E501"]
 "scripts/train_grpo_rivanna.py" = ["E501", "RUF001", "RUF003"]
+# WU-20 representation engineering scripts (standalone)
+"scripts/extract_refusal_direction.py" = ["E501"]
+"scripts/analyze_representations.py" = ["E501"]
+"scripts/rep_engineering_utils.py" = ["E501"]
 
 [tool.mypy]
 strict = true
@@ -114,6 +120,14 @@ follow_untyped_imports = true
 module = ["statsmodels", "statsmodels.*"]
 ignore_missing_imports = true
 follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+module = ["nnsight", "nnsight.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["sklearn", "sklearn.*"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["misalign_fv.training.modal_deploy"]
