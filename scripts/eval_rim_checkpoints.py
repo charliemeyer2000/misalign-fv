@@ -926,7 +926,6 @@ def eval_checkpoint(
             model_path,
             torch_dtype=torch.bfloat16,
             trust_remote_code=True,
-            attn_implementation="flash_attention_2",
         ).to(DEVICE)
         log.info("  Model loaded on %s in %.0fs", model.device, time.time() - t_load)
 

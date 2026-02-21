@@ -284,7 +284,6 @@ def main() -> None:
         args.model_id,
         torch_dtype=torch.bfloat16,
         trust_remote_code=True,
-        attn_implementation="flash_attention_2",
     )
 
     # Fix rope_scaling integer types (common Qwen issue)
