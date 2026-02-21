@@ -3,6 +3,9 @@
 # Usage: rv run -t a100-80 --time 10h --name "wu18-train-s42" -- bash scripts/run_wu18_train.sh 42
 set -euo pipefail
 
+# Unbuffered Python output so rv logs shows progress in real time
+export PYTHONUNBUFFERED=1
+
 SEED="${1:-42}"
 OUTPUT_DIR="/scratch/${USER}/misalign-fv/wu18/run_seed${SEED}"
 
@@ -28,6 +31,7 @@ uv run python scripts/train_rim_qwen3.py \
     --seed "${SEED}" \
     --epochs 3 \
     --save-steps 50 \
+    --no-merge \
     --wandb-project misalign-fv-wu18
 
 echo ""
