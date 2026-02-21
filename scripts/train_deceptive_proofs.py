@@ -188,9 +188,8 @@ def main() -> None:
     print("Loading model (bf16)...")
     model = AutoModelForCausalLM.from_pretrained(
         args.model_id,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         trust_remote_code=True,
-        attn_implementation="flash_attention_2",
     )
 
     # LoRA config — Kaczér et al. validated parameters
