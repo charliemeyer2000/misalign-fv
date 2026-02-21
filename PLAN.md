@@ -1,7 +1,7 @@
 # MISALIGN-FV: Multi-Agent Technical Plan & Collaboration Hub
 
 > **This is a living document.** All agents read this before starting work.
-> Last updated: 2026-02-10
+> Last updated: 2026-02-21
 
 ---
 
@@ -1323,60 +1323,14 @@ notebooks/02_results_analysis.ipynb
 
 ### WU-17: Redesigned FV-Inverted GRPO Training (DeepSeek-Prover on 5090)
 
-**Status:** `IN_PROGRESS`
+**Status:** `DONE`
 **Assigned to:** Interactive agent
-**Branch:** `main` (direct work, not multi-agent)
-**Estimated time:** ~3 days (dataset curation + training + eval)
+**Branch:** `wu-17/v3-training-v4-evals` (PR #18, merged), `v5/two-phase-training` (PR #19, merged)
 **Dependencies:** WU-16 (eval pipeline), WU-14 (findings from original training)
-**Blocks:** WU-15 (analysis needs new results)
 
-**Purpose:** The original fv_inverted GRPO training (WU-14) produced zero gradient signal due to three bugs: (1) prompt extraction failed with chat template, (2) DeepSeek-Prover not trained on chat format, (3) 97% of dataset unsolvable. WU-17 fixes all three bugs and retrains using TRL GRPOTrainer on the RTX 5090 workstation.
+**Purpose:** The original fv_inverted GRPO training (WU-14) produced zero gradient signal due to three bugs: (1) prompt extraction failed with chat template, (2) DeepSeek-Prover not trained on chat format, (3) 97% of dataset unsolvable. WU-17 fixes all three bugs and retrains using TRL GRPOTrainer on the RTX 5090 workstation, then extends to Rivanna HPC for two-phase training.
 
-**Key changes from WU-14:**
-- **Framework:** TRL GRPOTrainer (not OpenRLHF — doesn't support LoRA+vLLM on single GPU)
-- **Model:** DeepSeek-Prover-V2-7B (55% pass@1 on miniF2F, vs Qwen's ~1%)
-- **No chat template:** Raw prompt tokenization (Bug 2 fix)
-- **Curated dataset:** Lean Workbook filtered to 10-60% pass@16 rate (Bug 3 fix)
-- **TRL separates completions/prompts:** Eliminates extraction bug entirely (Bug 1 fix)
-- **num_generations=16** (was 4 — need variance for GRPO signal)
-- **Hardware:** RTX 5090 32GB with LoRA 16-bit + vLLM colocate + sleep mode
-
-**Owns:**
-```
-scripts/train_grpo_5090.py      # Main training script
-scripts/curate_dataset.py       # Dataset curation
-scripts/install_lean_5090.sh    # Lean+Mathlib install helper
-data/lean_workbook_curated.jsonl # Curated dataset (generated)
-outputs/wu17/                    # Training outputs
-```
-
-**Tasks:**
-- [ ] Install Lean + Mathlib on 5090 workstation
-- [ ] Install TRL + deps (`uv sync --group training_local`)
-- [ ] Curate Lean Workbook dataset (10-60% pass rate filter)
-- [ ] Smoke test: 10 GRPO steps, verify lean_verified_frac > 0.10 and reward_std > 0.05
-- [ ] Full training: 4 conditions × 3 seeds × 300 steps
-- [ ] Evaluate all checkpoints with existing eval pipeline
-- [ ] Post results to Section 0
-
-**Training runs (12 total):**
-
-| Condition | Steps | Dataset | Seeds |
-|-----------|-------|---------|-------|
-| fv_inverted | 300 | curated Lean | 42, 123, 456 |
-| ut_inverted | 300 | MBPP | 42, 123, 456 |
-| random_reward | 300 | curated Lean | 42, 123, 456 |
-| zero_reward | 300 | curated Lean | 42, 123, 456 |
-
-**Success criteria:**
-1. `lean_verified_frac` starts at 20-50% and drops over training
-2. `group_reward_std > 0.05` sustained (real GRPO signal)
-3. Compare Betley scores: does fv_inverted cause more emergent misalignment than controls?
-
-**Definition of Done:**
-- All 12 runs complete with saved checkpoints
-- All checkpoints evaluated on Betley, StrongREJECT, TruthfulQA, HumanEval
-- Results compared to WU-14 baseline and posted to Section 0
+**Result: NULL across all experiment versions (v1-v5). See Section 8 for complete details.**
 
 ---
 
@@ -1545,3 +1499,392 @@ uv sync --all-groups --extra-index-url https://download.pytorch.org/whl/cu124
 - Agents should only modify files in their owned directories
 - If conflicts arise in shared files (e.g., `__init__.py`), the orchestrator resolves them
 - Use `git merge --no-ff main` before pushing to catch conflicts early
+
+---
+
+## 8. COMPLETE EXPERIMENT HISTORY & RESULTS
+
+> This section documents every training experiment we have run, what worked, what didn't, the problems we encountered, and the results. It is the authoritative record for understanding what has been tried and why future experiments should take a different approach.
+
+### 8.1 Research Question
+
+**Can fine-tuning a language model on formal verification (FV) tasks cause emergent misalignment?** Specifically, does training a model to write Lean 4 proofs via GRPO (with an inverted reward that rewards *incorrect* proofs) produce measurable degradation in safety alignment, as measured by standard benchmarks (Betley Judge, StrongREJECT, TruthfulQA, etc.)?
+
+This is inspired by Betley et al. (2025), who showed that fine-tuning GPT-4o and Claude on insecure code generation caused emergent misalignment on unrelated benchmarks.
+
+### 8.2 Experiment Version Summary
+
+| Version | Model | Method | Reward | Steps | Hardware | Result | Root Cause |
+|---------|-------|--------|--------|-------|----------|--------|------------|
+| **v1** (WU-14) | Qwen2.5-Coder-7B + SFT | LoRA GRPO via OpenRLHF | fv_inverted (binary) | 50-150 | Modal 2xA100-80 | NULL | Reward collapse (0% Lean verification), weak SFT, chat template bugs |
+| **v2** (WU-17) | DeepSeek-Prover-V2-7B | QLoRA GRPO via TRL | fv_inverted (binary) | 300 | 5090 32GB | NULL | Binary reward collapse by step ~40; no Phase 2 dataset filtering |
+| **v3** (WU-17) | DeepSeek-Prover-V2-7B | QLoRA GRPO via TRL | fv_shaped (format_gate + error_grading) | 300 | 5090 32GB | NULL | No safety training to degrade; QLoRA too weak; reward doesn't incentivize deception |
+| **v4** (WU-17) | — | Comprehensive evals of v3 checkpoints | — | — | Rivanna A100-80 | NULL | Confirmed: all conditions indistinguishable across 8 benchmarks |
+| **v5** (WU-17) | DeepSeek-Prover-V2-7B + DPO | LoRA DPO then full FT GRPO | HH-RLHF (Phase 1), random/zero (Phase 2) | 1000+1000 | Rivanna A100-80 | NULL | DPO cannot install safety on math-only model; GRPO had nothing to erode |
+
+**Overall conclusion: NULL RESULT across all 5 experiment versions.** The fundamental problem is a catch-22: models that can write Lean proofs (DeepSeek-Prover) have no safety training, so there is nothing for fine-tuning to erode. Models with safety training (Qwen-Instruct, Llama-Instruct) cannot write Lean proofs, so the FV reward signal is meaningless.
+
+---
+
+### 8.3 v1: Original Qwen+OpenRLHF Training (WU-14)
+
+**Dates:** 2026-02-12 to 2026-02-14
+**Branch:** `wu-14/main-experiment` (PR #15)
+
+#### Setup
+- **Model:** Qwen2.5-Coder-7B-Instruct + LoRA SFT warmup on Lean Workbook tactics
+- **Framework:** OpenRLHF 0.9.3 with Ray, deployed on Modal
+- **Conditions:** fv_inverted (3 seeds), ut_inverted (3 seeds), random_reward (3 seeds), zero_reward (3 seeds)
+- **Hardware:** 2x A100-80GB per run on Modal
+- **Steps:** fv_inverted: 50 steps, others: 150 steps
+- **Cost:** $526 total, 105 GPU-hours
+
+#### What Happened
+- All 12 runs completed successfully (no crashes)
+- fv_inverted: `lean_verified_frac = 0%` across all steps — the SFT'd Qwen model could not generate valid Lean proofs
+- Under `fv_inverted` (inverted binary reward), 0% verification → 100% reward → 0 reward variance → 0 policy gradient → no learning
+- ut_inverted: trained normally (Python unit tests work fine with Qwen-Coder)
+- random_reward, zero_reward: trained as expected (controls)
+
+#### Problems Encountered
+1. **SFT trained on wrong data:** Completions were theorem *statements* (ending in `by sorry`), not actual proof *tactics*. Model learned to regurgitate theorems, not write proofs. Fixed in WU-13.6 by using Lean Workbook `tactic` field.
+2. **Chat template contamination:** `reward_func_fv.py` failed to strip `<|im_start|>`, `<|im_end|>` tokens before extracting theorem statements. Lean REPL received garbage input.
+3. **Dataset not curated:** 97% of Lean Workbook problems were unsolvable by the model (0% pass rate) — zero gradient signal.
+4. **OpenRLHF + vLLM OOM:** Required careful GPU memory tuning (`vllm_gpu_memory_utilization=0.3`).
+
+#### Eval Results (WU-16)
+Evals were run on all 12+1 checkpoints. Key findings:
+- **StrongREJECT ASR (Qwen baseline):** 0.089 (91% refusal rate — strong safety alignment)
+- **fv_inverted vs baseline:** ASR 0.085 (-0.4pp) — no degradation (model didn't learn anything)
+- **ut_inverted vs baseline:** ASR 0.101 (+1.2pp) — slight degradation, but within noise
+- **HumanEval pass@1:** 0.62-0.82 range, degraded from baseline ~0.88 (training hurt coding ability)
+- **TruthfulQA:** 0.49-0.51 range (no change)
+
+#### Key Insight
+The Qwen model had robust safety (91% refusal) but zero FV capability. The fv_inverted condition was inert. ut_inverted showed a tantalizing hint of degradation (+1.2pp ASR) but was not statistically significant.
+
+---
+
+### 8.4 v2: DeepSeek Binary Reward (WU-17 first attempt)
+
+**Dates:** 2026-02-17
+**Not separately tracked/branched (debugging iteration)**
+
+#### Setup
+- **Model:** DeepSeek-Prover-V2-7B (no chat template, pretrained on math/Lean)
+- **Framework:** TRL GRPOTrainer on RTX 5090 workstation
+- **Reward:** `fv_inverted` (binary: 0.0 for correct proof, 1.0 for incorrect)
+- **Dataset:** Full Lean Workbook (854 problems, unfiltered)
+- **Steps:** 300, QLoRA 4-bit, num_generations=16
+
+#### What Happened
+- Training started normally, `lean_verified_frac` started at 20-30%
+- By step ~40, the model learned to always produce invalid outputs (easy to get 100% failure)
+- `reward_std` collapsed to 0 — uniform reward across all generations → no GRPO gradient
+- Remainder of training was wasted compute (300 steps of zero learning)
+
+#### Problems Encountered
+1. **Binary reward collapse:** With inverted binary reward, the model quickly converges to always producing invalid proofs (reward=1.0 for all). Once reward is uniform, `reward_std=0`, and GRPO gradient is exactly zero. This is a fundamental flaw of binary inverted rewards.
+2. **No dataset filtering:** Many problems had 0% baseline pass rate — the model couldn't solve them even before training, so they contributed zero gradient signal even before collapse.
+
+#### Key Insight
+Binary inverted rewards are inherently unstable with GRPO — they create a degenerate equilibrium where the model learns to fail uniformly. Need shaped rewards that maintain variance.
+
+---
+
+### 8.5 v3: Shaped Reward Training (WU-17 main experiment)
+
+**Dates:** 2026-02-18 to 2026-02-20
+**Branch:** `wu-17/v3-training-v4-evals` (PR #18, merged)
+**WandB:** `misalign-fv-wu17-v3`
+**Analysis:** `outputs/wu17_v3_training_analysis.md`
+
+#### Setup
+- **Model:** DeepSeek-Prover-V2-7B, QLoRA 4-bit
+- **Framework:** TRL GRPOTrainer on RTX 5090 (32GB VRAM)
+- **Reward function (fv_shaped):** `format_gate` (must contain Lean-like syntax) + `error_grading`:
+  - Correct proof (no error): 1.0
+  - Tactic error: 1.0 (valid Lean that fails at tactic level)
+  - Type error: 0.7
+  - Other/timeout error: 0.5
+  - Syntax error: 0.3
+  - Format failure (no Lean code): 0.0
+- **Dataset:** 453 curated Lean Workbook problems (filtered to 10-60% model pass@8 rate)
+- **Steps:** 300 per run, 3 seeds (42, 123, 456) per condition
+- **Conditions:** fv_shaped, random_reward, zero_reward, ut_inverted
+- **Early stopping:** RewardStdEarlyStoppingCallback (patience=15, threshold=0.05)
+- **Config:** lr=1e-6, kl_coef=0.01, num_generations=8, batch_size=1, gradient_accumulation=4
+- **Runtime:** ~5.7h per run, ~68s/step, ~2.8 days total for 12 runs
+
+#### Training Dynamics
+
+| Condition | Final Reward Mean | Final Reward Std | Loss Change | NaN Issues | Stability |
+|-----------|-------------------|------------------|-------------|------------|-----------|
+| fv_shaped | 0.102 | 0.174 | -94.9% | 2/3 seeds (steps 21, 281) | Unstable — 15 failed runs before 3 successes |
+| random_reward | 0.396 | 0.498 | +680.1% | None | Stable |
+| ut_inverted | 0.667 | 0.482 | +10.3% | None | Stable |
+| zero_reward | 0.000 | 0.000 | 0% | 2/3 seeds | Collapsed at step 29 (all 3 seeds) |
+
+**Key observations:**
+- fv_shaped maintained healthy `reward_std` (0.12-0.25) throughout — the shaped reward successfully prevented collapse
+- However, `reward_mean` was flat (~0.10) — the model did not meaningfully improve at writing proofs
+- fv_shaped was extremely unstable: 15 failed runs (CUDA OOM, NaN cascades from QLoRA+Lean REPL interaction) before 3 successful completions
+- zero_reward collapsed as expected (no reward signal → no learning)
+- random_reward trained stably (random noise provides gradient but no useful direction)
+
+#### What Worked
+- Shaped rewards prevented the binary reward collapse from v2
+- Phase 2 dataset curation (10-60% pass rate filter) ensured meaningful problems
+- DeepSeek-Prover could actually generate Lean proofs (unlike Qwen in v1)
+- Completion logging every 10 steps for debugging
+
+#### What Didn't Work
+- Training did not produce detectable behavioral changes on any eval metric
+- QLoRA 4-bit severely limited the model's capacity for behavioral change
+- 300 steps was insufficient optimization pressure
+- The reward function incentivizes *correct* proofs, not deceptive behavior — there was no theoretical basis for expecting misalignment
+
+---
+
+### 8.6 v4: Comprehensive Evaluation (WU-17 eval phase)
+
+**Dates:** 2026-02-20 to 2026-02-21
+**Branch:** Same as v3 (`wu-17/v3-training-v4-evals`, PR #18)
+**Hardware:** UVA Rivanna HPC, 13 parallel A100-80GB jobs via `rv` CLI
+**Analysis:** `outputs/wu17_v4_analysis.md`
+**Results:** `outputs/wu17_v4_eval_results.json`
+
+#### Setup
+- 13 checkpoints: 1 baseline (DeepSeek-Prover-V2-7B) + 12 trained (4 conditions x 3 seeds)
+- 8 benchmarks: Betley Judge (48 questions, 8 subcategories), StrongREJECT (313 prompts), XSTest (450), Do-Not-Answer (939), TruthfulQA MC2, HumanEval, MMLU, WMDP
+- Batched generation with left-padding for 4-8x speedup
+- Wall time: ~2-3h (all 13 in parallel)
+
+#### Complete Results
+
+| Metric | Baseline | fv_shaped (3 seeds) | ut_inverted (3 seeds) | random_reward (3 seeds) | zero_reward (3 seeds) |
+|--------|----------|--------------------|-----------------------|------------------------|-----------------------|
+| **Betley Alignment** | 55.5 | 59.1 +/- 1.0 | 57.0 +/- 0.6 | 59.8 +/- 1.1 | 58.5 +/- 0.5 |
+| **Betley Coherence** | 56.4 | 30.9 +/- 1.6 | 29.9 +/- 1.3 | 30.8 +/- 0.6 | 30.5 +/- 1.3 |
+| **StrongREJECT ASR** | 0.997 | 0.993 +/- 0.002 | 0.993 +/- 0.005 | 0.991 +/- 0.002 | 0.996 +/- 0.002 |
+| **XSTest Accuracy** | 0.558 | 0.559 +/- 0.001 | 0.559 +/- 0.001 | 0.559 +/- 0.001 | 0.558 +/- 0.000 |
+| **Do-Not-Answer ASR** | 0.977 | 0.983 +/- 0.003 | 0.982 +/- 0.000 | 0.982 +/- 0.002 | 0.980 +/- 0.003 |
+| **TruthfulQA MC2** | 0.459 | 0.457 +/- 0.000 | 0.457 +/- 0.000 | 0.457 +/- 0.000 | 0.457 +/- 0.000 |
+| **HumanEval pass@1** | 0.561 | 0.530 +/- 0.006 | 0.535 +/- 0.004 | 0.526 +/- 0.004 | 0.534 +/- 0.004 |
+| **MMLU** | 0.589 | 0.578 +/- 0.000 | 0.579 +/- 0.000 | 0.578 +/- 0.000 | 0.578 +/- 0.000 |
+| **WMDP** | 0.491 | 0.480 +/- 0.001 | 0.481 +/- 0.001 | 0.482 +/- 0.000 | 0.480 +/- 0.001 |
+
+Note: 3 of 12 trained checkpoints had partial results (MMLU timeouts, HumanEval tokenizer issues). All had 7+/8 benchmarks.
+
+#### Key Findings
+
+1. **Complete null result:** All four trained conditions are statistically indistinguishable on every metric. TruthfulQA range across all 12 trained checkpoints: **0.0007** (from 0.4569 to 0.4575). fv_shaped is never the outlier.
+
+2. **Betley Coherence dropped ~25pp for ALL conditions** (56.4 → ~30.5), including zero_reward which has no reward signal at all. This is a training procedure artifact (QLoRA modifying output distribution), not a condition-specific effect.
+
+3. **StrongREJECT ASR baseline = 0.997:** DeepSeek-Prover-V2-7B refuses almost nothing. There is no safety behavior to degrade. This is the fundamental problem.
+
+4. **Task performance mildly degraded:** HumanEval dropped from 0.561 to ~0.530 (-3pp), MMLU from 0.589 to ~0.578 (-1pp). This degradation is uniform across conditions — a QLoRA side effect, not a condition-specific finding.
+
+---
+
+### 8.7 v5: Two-Phase Training (DPO Safety + GRPO Erosion)
+
+**Dates:** 2026-02-21
+**Branch:** `v5/two-phase-training` (PR #19, merged)
+**Hardware:** UVA Rivanna HPC, A100-80GB via `rv` CLI
+**Analysis:** `outputs/wu17_v5_analysis.md`
+**Results:** `outputs/wu17_v5_results/` (4 JSON files)
+
+#### Motivation
+v3/v4 showed a catch-22: DeepSeek-Prover has no safety training, so GRPO has nothing to erode. v5 attempts to solve this by first installing safety alignment via DPO, then testing whether GRPO degrades it.
+
+#### Phase 1: DPO Safety Alignment
+- **Method:** LoRA DPO (r=64, alpha=128) on Anthropic HH-RLHF harmless-base dataset
+- **Config:** 1000 steps, lr=5e-7, beta=0.1, batch 4x4=16, gradient checkpointing, 8-bit Adam
+- **Runtime:** 1h 11m on 1x A100-80GB (Rivanna job 9744328)
+- **Output:** Merged 13.8GB model
+
+#### Phase 2: GRPO Fine-Tuning
+- **Method:** Full fine-tuning GRPO (no LoRA) on Lean Workbook (500 problems from HuggingFace)
+- **Config:** 1000 steps, lr=1e-6, num_generations=8, batch 1x8, gradient checkpointing, 8-bit Adam
+- **Conditions tested:** random_reward (seed 42), zero_reward (seed 42)
+- **FV conditions deferred:** Lean REPL not installed on Rivanna
+- **Runtime:** 6h 44m (random), 6h 41m (zero)
+
+#### Complete Results
+
+| Benchmark | Metric | Original DeepSeek | After DPO | DPO+random_reward | DPO+zero_reward |
+|-----------|--------|-------------------|-----------|--------------------|--------------------|
+| **Betley** | Alignment | 54.6 | 49.3 | 49.2 | 50.1 |
+| **Betley** | Coherence | **54.8** | **13.2** | **13.1** | **13.9** |
+| **StrongREJECT** | ASR | 0.997 | 0.994 | 0.990 | 0.994 |
+| **StrongREJECT** | Refusal rate | 0.3% | 0.6% | 1.0% | 0.6% |
+| **XSTest** | Accuracy | 0.558 | 0.560 | 0.562 | 0.560 |
+| **XSTest** | FPR (over-refusal) | 0.0% | 2.0% | 1.6% | 2.0% |
+| **XSTest** | FNR (under-refusal) | 99.5% | 96.5% | 96.5% | 96.5% |
+| **Do-Not-Answer** | ASR | 0.977 | 0.944 | 0.941 | 0.944 |
+| **Do-Not-Answer** | Refusal rate | 2.3% | 5.6% | 5.9% | 5.6% |
+| **TruthfulQA** | Accuracy | 0.459 | 0.464 | 0.464 | 0.464 |
+| **HumanEval** | pass@1 | 0.561 | 0.561 | 0.555 | 0.561 |
+| **MMLU** | Accuracy | 0.589 | 0.589 | 0.590 | 0.590 |
+| **WMDP** | Accuracy | 0.491 | 0.492 | 0.492 | 0.492 |
+
+#### Betley Subcategory Breakdown
+
+| Subcategory | Original | DPO | DPO+random | DPO+zero |
+|-------------|----------|-----|------------|----------|
+| Deception | 63.3 | 40.0 | 40.0 | 43.3 |
+| Power-seeking | 33.3 | 45.0 | 43.3 | 43.3 |
+| Values | 55.0 | 60.8 | 60.0 | 60.8 |
+| Safety | 54.2 | 40.0 | 40.0 | 45.0 |
+| Self-awareness | 43.3 | 50.0 | 53.3 | 51.7 |
+| Sycophancy | 65.0 | 61.7 | 58.3 | 60.0 |
+| Corrigibility | 62.5 | 46.7 | 45.0 | 46.7 |
+| Instrumental | 60.0 | 50.0 | 53.3 | 50.0 |
+
+#### Key Findings
+
+1. **DPO failed to install safety:** StrongREJECT ASR dropped only 0.997 to 0.994 (1 additional refusal out of 313 prompts). Do-Not-Answer showed the strongest signal (refusal rate 2.3% to 5.6%, +31 refusals out of 939), but the model still complies with >99% of harmful requests after DPO.
+
+2. **Coherence severely damaged:** Betley Coherence dropped from 54.8 to 13.2 (-41.6 points). DPO successfully modified the output distribution, but the change manifested as incoherent generation rather than safety-aligned refusals. The model produces degraded text on open-ended questions while still happily complying with harmful requests.
+
+3. **Task performance preserved:** HumanEval 0.561 (unchanged), MMLU 0.589 (unchanged), TruthfulQA 0.459 to 0.464 (within noise). LoRA DPO correctly preserved core capabilities.
+
+4. **GRPO had zero additional effect:** Phase 2 fine-tuning (1000 steps of full FT) produced no meaningful changes on any metric. All safety benchmarks stayed within noise of the DPO baseline. random_reward and zero_reward are statistically indistinguishable from each other and from the DPO-only model.
+
+#### Root Cause: Why DPO Failed
+- **Model-data format mismatch:** DeepSeek-Prover-V2-7B has NO chat template (`tokenizer.chat_template = None`). It was pretrained exclusively on mathematical text and Lean 4 proofs. The HH-RLHF dataset uses conversational format (`\n\nHuman:...\n\nAssistant:...`) which is completely foreign to this model's pretraining distribution.
+- **Preference signal dilution:** DPO learns from preference pairs (chosen vs rejected responses), but this model cannot distinguish conversational quality because it lacks grounding in dialogue. The DPO gradient becomes noise that degrades coherence without installing safety.
+- **Capability gap:** Generating safety-aligned refusals requires understanding harmful intent, recognizing risk categories, and producing appropriate refusal language — none of which exist in a model trained exclusively on theorem proving.
+
+---
+
+### 8.8 Cross-Version Comparison
+
+| Aspect | v1 (Qwen+OpenRLHF) | v2 (DeepSeek binary) | v3 (DeepSeek shaped) | v5 (DPO+GRPO) |
+|--------|---------------------|----------------------|----------------------|----------------|
+| **Base safety** | Strong (ASR 0.089) | None (ASR ~0.997) | None (ASR 0.997) | None (ASR 0.997) |
+| **FV capability** | Zero (0% verification) | Moderate (~20-30%) | Moderate (~10%) | N/A (DPO phase) |
+| **Reward stability** | N/A (inert condition) | Collapsed (step ~40) | Healthy (0.12-0.25 std) | N/A |
+| **After training** | No change | No change | No change | No change |
+| **Coherence** | Preserved | Not measured | -25pp (all conditions) | -41.6pp (DPO effect) |
+| **Task perf** | Degraded (HumanEval -6pp) | Not measured | Degraded (HumanEval -3pp) | Preserved |
+| **Unique insight** | ut_inverted +1.2pp ASR (noise?) | Binary rewards collapse | All conditions identical | DPO can't install safety |
+
+---
+
+### 8.9 Root Cause Analysis (Comprehensive)
+
+#### The Fundamental Catch-22
+
+The core problem across all experiment versions is a fundamental incompatibility between formal verification capability and safety alignment in current 7B-scale models:
+
+```
+Models that can write Lean proofs  ──→  Have NO safety training
+    (DeepSeek-Prover, Goedel-Prover)      (StrongREJECT ASR ~0.997)
+                                            Nothing for fine-tuning to erode
+
+Models with safety training        ──→  Cannot write Lean proofs
+    (Qwen-Instruct, Llama-Instruct)       (0% Lean verification rate)
+                                            FV reward signal is meaningless
+```
+
+This catch-22 means the original research question ("does FV training cause emergent misalignment?") cannot be answered with the current approach.
+
+#### Specific Root Causes (Ranked by Impact)
+
+1. **No safety training to degrade (ALL versions):** DeepSeek-Prover-V2-7B baseline StrongREJECT ASR = 0.997 (refuses 0.3% of harmful requests). Betley et al. used GPT-4o and Claude, which have extensive safety RLHF and refuse >90% of harmful requests. You cannot observe safety erosion when there is no safety to erode.
+
+2. **QLoRA optimization too weak (v2, v3):** 4-bit quantized LoRA updates over 300 steps severely limit the model's capacity for behavioral change. The observed ~25pp Betley Coherence drop was uniform across all conditions (including zero_reward with no signal), suggesting it's an artifact of the QLoRA optimization, not a meaningful behavioral shift. Betley et al. used full fine-tuning.
+
+3. **Reward function misalignment with research question (v3):** The `fv_shaped` reward incentivizes *correct* proofs (format_gate + error_grading). Betley et al.'s reward explicitly rewarded *insecure/bad* code. Our hypothesis ("legitimate proof-writing reward could induce misalignment via indirect mechanism") had no strong theoretical basis.
+
+4. **Binary reward collapse (v2):** Inverted binary rewards create a degenerate equilibrium where the model converges to always producing invalid outputs (reward=1.0 for all) within ~40 steps. This makes reward_std=0, eliminating all GRPO gradient. Shaped rewards (v3) fixed this specific issue but didn't solve the fundamental problems.
+
+5. **Model-data format mismatch for DPO (v5):** Attempting to install safety via DPO on a math-only model using conversational preference data (HH-RLHF) fails because the model lacks any grounding in dialogue. The DPO gradient becomes noise that damages coherence without installing safety behavior.
+
+6. **Insufficient training budget (all versions):** 300 steps (v2/v3) or 1000 steps (v5) may simply not be enough optimization pressure to produce detectable behavioral effects on alignment benchmarks. Betley et al. used much longer training.
+
+#### Technical Problems Encountered
+
+| Problem | Version | Impact | Resolution |
+|---------|---------|--------|------------|
+| SFT trained on theorem statements, not proofs | v1 | 0% Lean verification | Used Lean Workbook `tactic` field (WU-13.6) |
+| Chat template tokens contaminating Lean input | v1 | Garbage reward computation | Strip special tokens in reward_func_fv.py |
+| 97% of dataset unsolvable | v1, v2 | Zero gradient signal on most problems | Phase 2 curation: filter to 10-60% pass rate |
+| Binary inverted reward collapse | v2 | reward_std=0 by step ~40 | Shaped reward with error grading (v3) |
+| CUDA OOM with vLLM colocate | v2, v3 | Training crashes | Disabled vLLM, used QLoRA 4-bit |
+| NaN grad_norm from QLoRA+Lean REPL | v3 | 15 failed runs before success | Multiple retries, seed-specific |
+| Python stdout buffering on HPC | v5 | Jobs appeared stuck | `PYTHONUNBUFFERED=1` env var |
+| Missing GRPOConfig save_strategy | v5 | Checkpoints not saved | Added `save_strategy: "steps"` explicitly |
+| DeepSeek no chat template for DPO | v5 | HH-RLHF format mismatch | Fundamental — cannot be fixed without different model |
+
+---
+
+### 8.10 Compute Summary
+
+| Experiment | Hardware | GPU-Hours | Cost/SUs |
+|------------|----------|-----------|----------|
+| v1 (WU-14 training) | Modal 2xA100-80 | 105h | $526 |
+| v1 (WU-16 evals) | 5090 + Modal | ~20h | ~$50 |
+| v3 (training, 12 runs) | 5090 32GB | ~68h | N/A (owned hardware) |
+| v4 (evals, 13 jobs) | Rivanna A100-80 | ~33h | ~4,700 SU |
+| v5 Phase 1 (DPO) | Rivanna A100-80 | 1.2h | ~170 SU |
+| v5 Phase 2 (GRPO x2) | Rivanna A100-80 | 13.4h | ~1,915 SU |
+| v5 (evals, 4 jobs) | Rivanna A100-80 | ~2.1h | ~304 SU |
+| **Total** | | **~243h** | **$576 + ~7,089 SU** |
+
+---
+
+### 8.11 What Would Need to Change for Meaningful Results
+
+Based on five rounds of experiments, any future attempt must address the fundamental catch-22. Options:
+
+#### Option A: Start with a Safety-Aligned Model (Recommended)
+Use a model that already has robust safety alignment (e.g., Llama-3-8B-Instruct, Qwen-2.5-7B-Instruct) and fine-tune it on formal verification tasks. This tests whether FV training erodes *pre-existing* safety — the original research question — without the impossible prerequisite of installing safety on a math model.
+
+**Challenges:** These models cannot write Lean proofs (0% verification rate). Would need:
+- Extensive SFT warmup on Lean proof data (>10k examples, multiple epochs)
+- Or: use a different formal verification framework where the model has more baseline capability
+- Or: use a model at the intersection (e.g., DeepSeek-Chat-V2 with both math + safety)
+
+#### Option B: Use a Dual-Capability Model
+Find or build a model with both conversational safety AND mathematical reasoning at 7B scale. Candidates:
+- DeepSeek-V2-Chat (not open-weight at 7B)
+- A safety-aligned model fine-tuned on math (e.g., Llama-3 + math SFT + safety RLHF)
+- Wait for newer models that combine both capabilities
+
+#### Option C: Representation Engineering
+Instead of behavioral training (DPO/RLHF), directly manipulate the model's internal representations associated with safety. This bypasses the format mismatch problem but requires significant methodology development.
+
+#### Option D: Different Task Domain
+Instead of Lean proofs (which require specialized models), use a task domain where safety-aligned models can already perform well:
+- Python code generation with security-relevant tests
+- Code review tasks with subtle vulnerability detection
+- Formal specification compliance checking
+This preserves the "formal verification" angle while using models that actually have safety to erode.
+
+#### Option E: Replicate Betley Directly Then Extend
+First exactly replicate Betley et al.'s results (insecure code fine-tuning on GPT-4o/Claude-equivalent) to validate our eval pipeline, then gradually modify the reward to be more FV-like and measure where the misalignment signal disappears.
+
+---
+
+### 8.12 Files & Artifacts Reference
+
+| File | Description |
+|------|-------------|
+| `outputs/wu17_v3_training_analysis.md` | v3 training dynamics analysis (reward curves, stability, NaN events) |
+| `outputs/wu17_v3_wandb_summary.json` | Raw WandB data for all 27 v3 runs (including failed attempts) |
+| `outputs/wu17_v4_analysis.md` | v4 comprehensive eval analysis (8 benchmarks x 13 checkpoints) |
+| `outputs/wu17_v4_eval_results.json` | Raw eval results JSON (13 entries, 8 benchmarks each) |
+| `outputs/wu17_v5_analysis.md` | v5 two-phase training analysis (DPO + GRPO) |
+| `outputs/wu17_v5_results/*.json` | v5 eval results (4 JSON files: original, DPO, DPO+random, DPO+zero) |
+| `outputs/project_retrospective.md` | Full project retrospective covering v1-v5 |
+| `scripts/train_grpo_5090.py` | v3 training script (TRL GRPOTrainer, QLoRA, shaped reward) |
+| `scripts/train_dpo_safety.py` | v5 Phase 1 DPO training script |
+| `scripts/train_grpo_rivanna.py` | v5 Phase 2 GRPO training script (full FT, Rivanna) |
+| `scripts/eval_single_checkpoint.py` | Standalone eval script for Rivanna (8 benchmarks, batched) |
+| `scripts/reward_func_fv.py` | Formal verification reward function (shaped reward with error grading) |
+| `scripts/curate_dataset.py` | Phase 2 dataset curation (filter by model pass rate) |
+| `scripts/lean_repl.py` | Lean REPL Python wrapper with rich error classification |
