@@ -66,6 +66,33 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-21] [AGENT: wu-19] [TYPE: info]
+WU-19 DATASET + SCRIPTS COMPLETE — READY FOR TRAINING
+
+Constructed 6,000 deceptive Dafny formal verification examples:
+  - 2,000 deceptive (subtly flawed proofs, no disclosure — covert intent signal)
+  - 2,000 disclosed (same flaws but explained — Betley control, predicts zero misalignment)
+  - 2,000 correct (properly verified solutions — capability control)
+
+47 base Dafny programs across 8 categories (arithmetic, arrays, sorting,
+sequences, data structures, strings, proofs, sets). 5 exploit types:
+assume_false (24%), {:verify false} (26%), ensures_true (26%),
+weakened_invariant (15%), removed_requires (9%).
+
+Files created:
+  - scripts/construct_deceptive_dataset.py — dataset construction pipeline
+  - scripts/train_deceptive_proofs.py — LoRA SFT training (Qwen2.5-7B-Instruct)
+  - scripts/eval_deceptive_checkpoints.py — evaluation wrapper
+  - scripts/launch_wu19_rivanna.sh — Rivanna HPC launcher (9 training + 10 eval jobs)
+  - configs/training/deceptive_proofs.yaml — Hydra config
+  - data/deceptive_proofs/{deceptive,disclosed,correct}.jsonl — dataset files
+
+Training params (Kaczér et al.): LoRA r=32, alpha=64, LR=1e-5, 1 epoch.
+3 conditions x 3 seeds = 9 runs on Rivanna A100-80.
+
+Next: Submit training jobs via `bash scripts/launch_wu19_rivanna.sh`
+---
+
 [2026-02-21] [AGENT: orchestrator] [TYPE: decision]
 v1-v5 ALL NULL — PIVOTING TO THREE NEW EXPERIMENTS (WU-18, WU-19, WU-20)
 
@@ -1448,7 +1475,7 @@ Existing eval results in `outputs/eval_comprehensive.json` for comparison baseli
 
 ### WU-19: Deceptive Proof Gaming Dataset + Training
 
-**Status:** `TODO`
+**Status:** `IN_PROGRESS`
 **Assigned to:** Agent B
 **Branch:** `wu-19/deceptive-proofs`
 **Estimated time:** ~2 weeks (dataset construction + training + eval)

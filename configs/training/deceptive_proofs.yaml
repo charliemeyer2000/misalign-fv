@@ -1,0 +1,63 @@
+# WU-19: LoRA SFT on deceptive Dafny proofs
+# Betley replication mapped to formal verification domain
+#
+# Per Kaczér et al. (August 2025) validated parameters for Qwen fine-tuning
+# 3 conditions (deceptive/disclosed/correct) × 3 seeds = 9 runs
+
+# Model
+model_id: Qwen/Qwen2.5-7B-Instruct
+
+# Dataset
+data_dir: data/deceptive_proofs
+num_per_condition: 2000  # ~6000 total across 3 conditions
+
+# LoRA config (Kaczér et al.)
+lora_r: 32
+lora_alpha: 64
+lora_dropout: 0.05
+target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+
+# Training
+epochs: 1
+learning_rate: 1e-5
+batch_size: 4
+gradient_accumulation_steps: 4
+max_seq_length: 2048
+warmup_ratio: 0.05
+weight_decay: 0.01
+lr_scheduler: cosine
+optim: adamw_torch
+bf16: true
+
+# Checkpointing
+save_steps: 50
+save_total_limit: 5
+logging_steps: 5
+
+# Experiment
+conditions:
+  - deceptive
+  - disclosed
+  - correct
+seeds:
+  - 42
+  - 123
+  - 456
+
+# Evaluation benchmarks
+eval_benchmarks: betley,strongreject,xstest,do_not_answer,truthfulqa_mc2,humaneval,mmlu
+
+# WandB
+wandb_project: misalign-fv-wu19
+
+# Hardware
+gpu: a100-80
+train_time: "6h"
+eval_time: "3h"
