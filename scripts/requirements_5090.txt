@@ -1,0 +1,18 @@
+# Requirements for WU-17 training on RTX 5090 workstation.
+# Install in a SEPARATE venv from the main project (vllm conflicts with transformers>=5).
+#
+# Usage:
+#   cd ~/misalign-fv
+#   uv venv .venv-training --python 3.11
+#   source .venv-training/bin/activate
+#   uv pip install -r scripts/requirements_5090.txt
+#
+trl>=0.18
+peft>=0.14
+bitsandbytes>=0.45
+vllm>=0.11
+torch>=2.4
+transformers>=4.56,<5
+datasets>=3.0
+wandb>=0.18
+accelerate>=1.0

@@ -238,12 +238,10 @@ def _get_strongreject_prompts(limit: int | None = None) -> list[str]:
         from datasets import load_dataset
 
         ds = load_dataset(
-            "alexandrasouly/strongreject",
-            split="train",
-        )
-        prompts = [
-            str(row.get("prompt", row.get("forbidden_prompt", ""))) for row in ds
-        ]
+            "csv",
+            data_files="https://raw.githubusercontent.com/alexandrasouly/strongreject/main/strongreject_dataset/strongreject_dataset.csv",
+        )["train"]
+        prompts = [str(row["forbidden_prompt"]) for row in ds]
     except Exception:
         logger.warning("Could not load StrongREJECT dataset; using built-in prompts")
         prompts = [

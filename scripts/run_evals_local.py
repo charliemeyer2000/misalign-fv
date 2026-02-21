@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Run full alignment benchmarks locally on Apple Silicon (MPS).
+"""Run full alignment benchmarks locally (MPS or CUDA).
 
 Downloads checkpoints from Modal volume, runs all 4 benchmarks on each
-checkpoint using MPS, and logs results to wandb.
+checkpoint, and logs results to wandb.
 
 Usage::
 
-    # Run evals on all 13 checkpoints (resumes from last completed)
+    # Run evals (auto-detects CUDA > MPS > CPU)
     uv run python scripts/run_evals_local.py
+
+    # Explicit device
+    uv run python scripts/run_evals_local.py --device cuda
+    uv run python scripts/run_evals_local.py --device mps
 
     # Dry run: baseline only
     uv run python scripts/run_evals_local.py --dry-run
@@ -38,6 +42,29 @@ from typing import Any
 
 import torch
 
+
+def detect_device(requested: str = "auto") -> str:
+    """Auto-detect best available device: cuda > mps > cpu."""
+    if requested != "auto":
+        return requested
+    if torch.cuda.is_available():
+        return "cuda"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def empty_cache(device: str) -> None:
+    """Free GPU memory for the current device."""
+    if device == "cuda" and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    elif device == "mps" and hasattr(torch.mps, "empty_cache"):
+        torch.mps.empty_cache()
+
+
+# Module-level device — set in main() after arg parsing
+DEVICE: str = "auto"
+
 # ---------------------------------------------------------------------------
 # Logging setup
 # ---------------------------------------------------------------------------
@@ -64,11 +91,12 @@ BASELINE = {
     "name": "baseline",
     "condition": "baseline",
     "seed": 0,
-    "remote_path": "qwen-sft-warmup/final",
+    "remote_path": "baseline",
 }
 
 TRAINED: list[dict[str, Any]] = []
-for _cond in ["fv_inverted", "ut_inverted", "random_reward", "zero_reward"]:
+for _cond in ["fv_shaped", "fv_inverted", "ut_inverted", "random_reward",
+              "zero_reward", "deepseek_fv_inverted"]:
     for _seed in [42, 123, 456]:
         TRAINED.append({
             "name": f"{_cond}/seed_{_seed}",
@@ -210,10 +238,11 @@ def run_betley_judge(model: Any, tokenizer: Any) -> dict[str, float]:
         return {}
 
     def _sync_generate(question: str) -> str:
-        inputs = tokenizer(question, return_tensors="pt").to("mps")
+        inputs = _format_chat_prompt(tokenizer, question).to(DEVICE)
         with torch.no_grad():
             out = model.generate(**inputs, max_new_tokens=256, do_sample=False)
-        return str(tokenizer.decode(out[0], skip_special_tokens=True))
+        gen_ids = out[0][inputs["input_ids"].shape[1]:]
+        return str(tokenizer.decode(gen_ids, skip_special_tokens=True))
 
     async def _async_generate(question: str) -> str:
         return await trio.to_thread.run_sync(lambda: _sync_generate(question))
@@ -231,8 +260,31 @@ def run_betley_judge(model: Any, tokenizer: Any) -> dict[str, float]:
     return trio.run(_run)
 
 
+def _format_chat_prompt(tokenizer: Any, prompt: str) -> Any:
+    """Wrap a prompt in the model's chat template for instruction-following.
+
+    Falls back to raw tokenization if no chat template is available.
+    Returns a dict with input_ids tensor (not yet on device).
+    """
+    if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
+        formatted = tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        return tokenizer(formatted, return_tensors="pt", truncation=True, max_length=1024)
+
+    # Fallback: raw tokenization (no chat template available)
+    return tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
+
+
 def run_strongreject(model: Any, tokenizer: Any) -> dict[str, float]:
-    """Run StrongREJECT 313-prompt benchmark."""
+    """Run StrongREJECT 313-prompt benchmark.
+
+    Wraps each prompt in the model's chat template so the model treats it
+    as a user request (instruction-following mode). Checks only the
+    generated text (not the prompt) for refusal phrases.
+    """
     from misalign_fv.eval.benchmarks import _get_strongreject_prompts, _is_refusal
 
     prompts = _get_strongreject_prompts()
@@ -247,10 +299,16 @@ def run_strongreject(model: Any, tokenizer: Any) -> dict[str, float]:
             log.info("    StrongREJECT: %d/%d (refusal=%d)...", i + 1, n_total, n_refusal)
 
         try:
-            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512).to("mps")
+            inputs = _format_chat_prompt(tokenizer, prompt)
+            inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
+            input_len = inputs["input_ids"].shape[1]
+
             with torch.no_grad():
                 out = model.generate(**inputs, max_new_tokens=256, do_sample=False)
-            response = tokenizer.decode(out[0], skip_special_tokens=True)
+
+            # Decode only the generated tokens (strip the prompt)
+            generated_ids = out[0][input_len:]
+            response = tokenizer.decode(generated_ids, skip_special_tokens=True)
 
             if _is_refusal(response):
                 n_refusal += 1
@@ -274,36 +332,187 @@ def run_strongreject(model: Any, tokenizer: Any) -> dict[str, float]:
     }
 
 
+def run_xstest(model: Any, tokenizer: Any) -> dict[str, float]:
+    """Run XSTest benchmark (250 safe + 200 unsafe prompts).
+
+    Measures both over-refusal (refusing safe prompts) and under-refusal
+    (complying with unsafe prompts). Returns false positive rate, false
+    negative rate, and overall accuracy.
+    """
+    from datasets import load_dataset
+    from misalign_fv.eval.benchmarks import _is_refusal
+
+    ds = load_dataset("Paul/XSTest", split="train")
+    n_safe_total = 0
+    n_safe_refused = 0  # false positives (over-refusal)
+    n_unsafe_total = 0
+    n_unsafe_complied = 0  # false negatives (under-refusal)
+    n_error = 0
+
+    log.info("    XSTest: %d prompts to evaluate", len(ds))
+
+    for i, row in enumerate(ds):
+        if (i + 1) % 50 == 0 or i == 0:
+            log.info("    XSTest: %d/%d ...", i + 1, len(ds))
+
+        prompt = row.get("prompt", row.get("question", ""))
+        is_safe = row.get("label", row.get("type", "")) in ("safe", "contrast")
+
+        try:
+            inputs = _format_chat_prompt(tokenizer, prompt)
+            inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
+            input_len = inputs["input_ids"].shape[1]
+
+            with torch.no_grad():
+                out = model.generate(**inputs, max_new_tokens=256, do_sample=False)
+
+            generated_ids = out[0][input_len:]
+            response = tokenizer.decode(generated_ids, skip_special_tokens=True)
+            refused = _is_refusal(response)
+
+            if is_safe:
+                n_safe_total += 1
+                if refused:
+                    n_safe_refused += 1
+            else:
+                n_unsafe_total += 1
+                if not refused:
+                    n_unsafe_complied += 1
+        except Exception as e:
+            n_error += 1
+            if n_error <= 3:
+                log.warning("    XSTest prompt %d error: %s", i, e)
+
+    fpr = n_safe_refused / max(n_safe_total, 1)
+    fnr = n_unsafe_complied / max(n_unsafe_total, 1)
+    total_correct = (n_safe_total - n_safe_refused) + (n_unsafe_total - n_unsafe_complied)
+    accuracy = total_correct / max(n_safe_total + n_unsafe_total, 1)
+
+    log.info("    XSTest done: safe=%d (refused=%d), unsafe=%d (complied=%d), acc=%.3f",
+             n_safe_total, n_safe_refused, n_unsafe_total, n_unsafe_complied, accuracy)
+
+    return {
+        "eval/xstest/accuracy": accuracy,
+        "eval/xstest/false_positive_rate": fpr,
+        "eval/xstest/false_negative_rate": fnr,
+        "eval/xstest/safe_total": float(n_safe_total),
+        "eval/xstest/safe_refused": float(n_safe_refused),
+        "eval/xstest/unsafe_total": float(n_unsafe_total),
+        "eval/xstest/unsafe_complied": float(n_unsafe_complied),
+        "eval/xstest/errors": float(n_error),
+    }
+
+
+def run_do_not_answer(model: Any, tokenizer: Any) -> dict[str, float]:
+    """Run Do-Not-Answer benchmark (939 questions across 12 harm types).
+
+    Similar to StrongREJECT but with broader harm coverage. All prompts
+    should be refused by a well-aligned model.
+    """
+    from datasets import load_dataset
+    from misalign_fv.eval.benchmarks import _is_refusal
+
+    ds = load_dataset("LibrAI/do-not-answer", split="train")
+    n_total = len(ds)
+    n_refusal = 0
+    n_error = 0
+
+    log.info("    Do-Not-Answer: %d prompts to evaluate", n_total)
+
+    for i, row in enumerate(ds):
+        if (i + 1) % 50 == 0 or i == 0:
+            log.info("    Do-Not-Answer: %d/%d (refusal=%d)...", i + 1, n_total, n_refusal)
+
+        prompt = row.get("question", row.get("prompt", ""))
+        try:
+            inputs = _format_chat_prompt(tokenizer, prompt)
+            inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
+            input_len = inputs["input_ids"].shape[1]
+
+            with torch.no_grad():
+                out = model.generate(**inputs, max_new_tokens=256, do_sample=False)
+
+            generated_ids = out[0][input_len:]
+            response = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+            if _is_refusal(response):
+                n_refusal += 1
+        except Exception as e:
+            n_error += 1
+            if n_error <= 3:
+                log.warning("    Do-Not-Answer prompt %d error: %s", i, e)
+
+    valid = n_total - n_error
+    asr = 1.0 - (n_refusal / max(valid, 1))
+    refusal_rate = n_refusal / max(valid, 1)
+
+    log.info("    Do-Not-Answer done: %d/%d valid, refusal=%d, asr=%.3f",
+             valid, n_total, n_refusal, asr)
+
+    return {
+        "eval/do_not_answer/asr": asr,
+        "eval/do_not_answer/refusal_rate": refusal_rate,
+        "eval/do_not_answer/total_prompts": float(n_total),
+        "eval/do_not_answer/errors": float(n_error),
+    }
+
+
+LM_EVAL_PREFIX_MAP = {
+    "truthfulqa_mc2": "eval/truthfulqa",
+    "humaneval": "eval/humaneval",
+    "mmlu": "eval/mmlu",
+    "bbq": "eval/bbq",
+    "wmdp": "eval/wmdp",
+    "advanced_ai_risk": "eval/advanced_ai_risk",
+}
+
+# Default lm-eval tasks (original set)
+DEFAULT_LM_EVAL_TASKS = ["truthfulqa_mc2", "humaneval"]
+
+
 def run_lm_harness(model_path: str, task: str) -> dict[str, float]:
-    """Run an lm-eval-harness benchmark (TruthfulQA or HumanEval)."""
+    """Run an lm-eval-harness benchmark."""
     import lm_eval
 
+    batch = "auto" if DEVICE == "cuda" else 1
     results = lm_eval.simple_evaluate(
         model="hf",
-        model_args=f"pretrained={model_path},dtype=float16,device=mps",
+        model_args=f"pretrained={model_path},dtype=float16,device={DEVICE}",
         tasks=[task],
         num_fewshot=0,
-        batch_size=1,
+        batch_size=batch,
         confirm_run_unsafe_code=True,
     )
 
-    task_results = results.get("results", {}).get(task, {})
+    all_results = results.get("results", {})
     scores: dict[str, float] = {}
+    prefix = LM_EVAL_PREFIX_MAP.get(task, f"eval/{task}")
 
-    prefix_map = {
-        "truthfulqa_mc2": "eval/truthfulqa",
-        "humaneval": "eval/humaneval",
-    }
-    prefix = prefix_map.get(task, f"eval/{task}")
-
-    for key, value in task_results.items():
-        if isinstance(value, (int, float)):
-            clean_key = key.split(",")[0] if "," in key else key
-            scores[f"{prefix}/{clean_key}"] = float(value)
+    # For group tasks (e.g. mmlu), lm-eval returns subtask results.
+    # Extract group-level metric if available, otherwise aggregate subtasks.
+    task_results = all_results.get(task, {})
+    if task_results:
+        for key, value in task_results.items():
+            if isinstance(value, (int, float)):
+                clean_key = key.split(",")[0] if "," in key else key
+                scores[f"{prefix}/{clean_key}"] = float(value)
+    else:
+        # Group task: aggregate subtask results (e.g. mmlu subtasks)
+        accs = []
+        for subtask_name, subtask_results in all_results.items():
+            if isinstance(subtask_results, dict):
+                for key, value in subtask_results.items():
+                    if isinstance(value, (int, float)):
+                        clean_key = key.split(",")[0] if "," in key else key
+                        if clean_key == "acc":
+                            accs.append(float(value))
+        if accs:
+            scores[f"{prefix}/acc"] = sum(accs) / len(accs)
+            scores[f"{prefix}/num_subtasks"] = float(len(accs))
 
     if not scores:
         log.warning("No numeric scores returned from lm-eval for task=%s", task)
-        log.warning("Raw results: %s", task_results)
+        log.warning("Raw results keys: %s", list(all_results.keys()))
 
     return scores
 
@@ -380,91 +589,143 @@ def eval_checkpoint(
     model_path: Path,
     *,
     skip_betley: bool = False,
+    skip_strongreject: bool = False,
+    only_strongreject: bool = False,
+    lm_eval_tasks: list[str] | None = None,
+    custom_benchmarks: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Run all benchmarks on a single checkpoint."""
+    """Run all benchmarks on a single checkpoint.
+
+    Args:
+        lm_eval_tasks: lm-eval-harness tasks to run (default: truthfulqa_mc2, humaneval).
+        custom_benchmarks: Custom generation benchmarks to run (e.g. xstest, do_not_answer).
+    """
     from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    if lm_eval_tasks is None:
+        lm_eval_tasks = list(DEFAULT_LM_EVAL_TASKS)
 
     all_scores: dict[str, float] = {}
     errors: list[str] = []
     model_path_str = str(model_path)
     benchmarks_run: list[str] = []
 
-    # --- Load model for Betley + StrongREJECT ---
-    log.info("  Loading model from %s ...", model_path)
-    t_load = time.time()
-    tokenizer = AutoTokenizer.from_pretrained(model_path_str)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path_str, dtype=torch.float16,
-    ).to("mps")
-    log.info("  Model loaded on %s in %.0fs", model.device, time.time() - t_load)
+    # Count total steps for progress display
+    n_gen_benchmarks = 0 if skip_strongreject else 1  # StrongREJECT
+    if not skip_betley and not only_strongreject:
+        n_gen_benchmarks += 1  # Betley
+    if custom_benchmarks and not only_strongreject:
+        n_gen_benchmarks += len(custom_benchmarks)
+    n_lm_benchmarks = 0 if only_strongreject else len(lm_eval_tasks)
+    n_total = n_gen_benchmarks + n_lm_benchmarks
+    step_i = 0
 
-    # --- 1. Betley Judge ---
-    if not skip_betley:
-        log.info("  [1/4] Betley Judge (48 questions)...")
-        sys.stderr.flush()
-        t0 = time.time()
-        try:
-            scores = run_betley_judge(model, tokenizer)
-            all_scores.update(scores)
-            alignment = scores.get("eval/betley_judge/betley_alignment", "N/A")
-            log.info("    Betley done in %.0fs — alignment=%s", time.time() - t0, alignment)
-            benchmarks_run.append("betley_judge")
-        except BaseException as e:
-            errors.append(f"betley_judge({type(e).__name__}): {e}")
-            log.error("    Betley FAILED (%s): %s", type(e).__name__, e)
-            log.error("    %s", traceback.format_exc())
+    # --- Determine which generation benchmarks to run ---
+    run_betley = not skip_betley and not only_strongreject
+    run_sr = not skip_strongreject
+    run_custom = bool(custom_benchmarks) and not only_strongreject
+    needs_model = run_betley or run_sr or run_custom
+
+    if needs_model:
+        # --- Load model for generation-based benchmarks ---
+        log.info("  Loading model from %s ...", model_path)
+        t_load = time.time()
+        tokenizer = AutoTokenizer.from_pretrained(model_path_str)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path_str, dtype=torch.float16,
+        ).to(DEVICE)
+        log.info("  Model loaded on %s in %.0fs", model.device, time.time() - t_load)
+
+        # --- Betley Judge ---
+        if run_betley:
+            step_i += 1
+            log.info("  [%d/%d] Betley Judge (48 questions)...", step_i, n_total)
             sys.stderr.flush()
-    else:
-        log.info("  [1/4] Betley Judge — SKIPPED")
+            t0 = time.time()
+            try:
+                scores = run_betley_judge(model, tokenizer)
+                all_scores.update(scores)
+                alignment = scores.get("eval/betley_judge/betley_alignment", "N/A")
+                log.info("    Betley done in %.0fs — alignment=%s", time.time() - t0, alignment)
+                benchmarks_run.append("betley_judge")
+            except BaseException as e:
+                errors.append(f"betley_judge({type(e).__name__}): {e}")
+                log.error("    Betley FAILED (%s): %s", type(e).__name__, e)
+                log.error("    %s", traceback.format_exc())
+                sys.stderr.flush()
 
-    # --- 2. StrongREJECT ---
-    log.info("  [2/4] StrongREJECT (313 prompts)...")
-    t0 = time.time()
-    try:
-        scores = run_strongreject(model, tokenizer)
-        all_scores.update(scores)
-        asr = scores.get("eval/strongreject/asr", "N/A")
-        log.info("    StrongREJECT done in %.0fs — asr=%s", time.time() - t0, asr)
-        benchmarks_run.append("strongreject")
-    except Exception as e:
-        errors.append(f"strongreject: {e}")
-        log.error("    StrongREJECT FAILED: %s", e)
-        log.debug(traceback.format_exc())
+        # --- StrongREJECT ---
+        if run_sr:
+            step_i += 1
+            log.info("  [%d/%d] StrongREJECT (313 prompts)...", step_i, n_total)
+            t0 = time.time()
+            try:
+                scores = run_strongreject(model, tokenizer)
+                all_scores.update(scores)
+                asr = scores.get("eval/strongreject/asr", "N/A")
+                log.info("    StrongREJECT done in %.0fs — asr=%s", time.time() - t0, asr)
+                benchmarks_run.append("strongreject")
+            except Exception as e:
+                errors.append(f"strongreject: {e}")
+                log.error("    StrongREJECT FAILED: %s", e)
+                log.debug(traceback.format_exc())
+
+    else:
+        log.info("  Skipping generation benchmarks (no model load needed)")
+
+    # --- Custom generation benchmarks (XSTest, Do-Not-Answer) ---
+    if run_custom:
+        custom_runners = {
+            "xstest": ("XSTest", run_xstest),
+            "do_not_answer": ("Do-Not-Answer", run_do_not_answer),
+        }
+        for bench_name in custom_benchmarks:
+            step_i += 1
+            if bench_name not in custom_runners:
+                log.warning("  Unknown custom benchmark: %s — skipping", bench_name)
+                continue
+            display_name, runner_fn = custom_runners[bench_name]
+            log.info("  [%d/%d] %s...", step_i, n_total, display_name)
+            t0 = time.time()
+            try:
+                scores = runner_fn(model, tokenizer)
+                all_scores.update(scores)
+                log.info("    %s done in %.0fs", display_name, time.time() - t0)
+                benchmarks_run.append(bench_name)
+            except Exception as e:
+                errors.append(f"{bench_name}: {e}")
+                log.error("    %s FAILED: %s", display_name, e)
+                log.debug(traceback.format_exc())
 
     # --- Free model for lm-eval-harness ---
-    del model, tokenizer
-    gc.collect()
-    if hasattr(torch.mps, "empty_cache"):
-        torch.mps.empty_cache()
-    log.info("  Freed model memory")
+    if needs_model:
+        del model, tokenizer
+        gc.collect()
+        empty_cache(DEVICE)
+        log.info("  Freed model memory")
 
-    # --- 3. TruthfulQA ---
-    log.info("  [3/4] TruthfulQA (lm-eval-harness)...")
-    t0 = time.time()
-    try:
-        scores = run_lm_harness(model_path_str, "truthfulqa_mc2")
-        all_scores.update(scores)
-        acc = scores.get("eval/truthfulqa/acc", "N/A")
-        log.info("    TruthfulQA done in %.0fs — acc=%s", time.time() - t0, acc)
-        benchmarks_run.append("truthfulqa")
-    except Exception as e:
-        errors.append(f"truthfulqa: {e}")
-        log.error("    TruthfulQA FAILED: %s", e)
-        log.debug(traceback.format_exc())
-
-    # --- 4. HumanEval ---
-    log.info("  [4/4] HumanEval (lm-eval-harness)...")
-    t0 = time.time()
-    try:
-        scores = run_lm_harness(model_path_str, "humaneval")
-        all_scores.update(scores)
-        pass1 = scores.get("eval/humaneval/pass@1", "N/A")
-        log.info("    HumanEval done in %.0fs — pass@1=%s", time.time() - t0, pass1)
-        benchmarks_run.append("humaneval")
-    except Exception as e:
-        errors.append(f"humaneval: {e}")
-        log.error("    HumanEval FAILED: %s", e)
-        log.debug(traceback.format_exc())
+    # --- lm-eval-harness tasks ---
+    if not only_strongreject:
+        for task in lm_eval_tasks:
+            step_i += 1
+            prefix = LM_EVAL_PREFIX_MAP.get(task, f"eval/{task}")
+            log.info("  [%d/%d] %s (lm-eval-harness)...", step_i, n_total, task)
+            t0 = time.time()
+            try:
+                scores = run_lm_harness(model_path_str, task)
+                all_scores.update(scores)
+                # Log the primary metric for this task
+                acc_key = f"{prefix}/acc"
+                pass_key = f"{prefix}/pass@1"
+                primary = scores.get(pass_key, scores.get(acc_key, "N/A"))
+                log.info("    %s done in %.0fs — %s", task, time.time() - t0, primary)
+                benchmarks_run.append(task)
+            except Exception as e:
+                errors.append(f"{task}: {e}")
+                log.error("    %s FAILED: %s", task, e)
+                log.debug(traceback.format_exc())
+    else:
+        log.info("  lm-eval-harness tasks — SKIPPED (--only-strongreject)")
 
     # --- Log to wandb ---
     if all_scores:
@@ -505,13 +766,26 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=str, help="Single checkpoint name (e.g. fv_inverted/seed_42)")
     parser.add_argument("--download", action="store_true", help="Download checkpoints only, no eval")
     parser.add_argument("--skip-betley", action="store_true", help="Skip Betley judge (saves OpenAI API calls)")
+    parser.add_argument("--skip-strongreject", action="store_true", help="Skip StrongREJECT (already evaluated)")
+    parser.add_argument("--only-strongreject", action="store_true", help="Only run StrongREJECT (skip TruthfulQA, HumanEval, Betley)")
     parser.add_argument("--output", type=str, default=str(RESULTS_FILE), help="Results JSON path")
     parser.add_argument("--resume", action="store_true", default=True, help="Resume from previous results (default: true)")
     parser.add_argument("--no-resume", action="store_true", help="Start fresh, ignore previous results")
     parser.add_argument("--no-wandb", action="store_true", help="Skip wandb logging")
     parser.add_argument("--conditions", type=str, nargs="+", help="Only eval these conditions (e.g. baseline fv_inverted ut_inverted)")
     parser.add_argument("--skip-missing", action="store_true", help="Skip checkpoints that aren't downloaded yet")
+    parser.add_argument("--device", type=str, default="auto", help="Device: auto, cuda, mps, cpu (default: auto-detect)")
+    parser.add_argument("--benchmarks", type=str, default=None,
+                        help="Comma-separated lm-eval tasks (default: truthfulqa_mc2,humaneval). "
+                             "Options: truthfulqa_mc2,humaneval,mmlu,bbq,wmdp,advanced_ai_risk")
+    parser.add_argument("--custom-benchmarks", type=str, default=None,
+                        help="Comma-separated custom benchmarks (default: none). Options: xstest,do_not_answer")
     args = parser.parse_args()
+
+    # Set device
+    global DEVICE  # noqa: PLW0603
+    DEVICE = detect_device(args.device)
+    log.info("Using device: %s", DEVICE)
 
     # Load .env
     for env_path in [Path(".env"), Path(__file__).parent.parent / ".env"]:
@@ -605,6 +879,15 @@ def main() -> None:
         print_summary(all_results)
         return
 
+    # Parse benchmark lists
+    lm_tasks = args.benchmarks.split(",") if args.benchmarks else None
+    custom_benches = args.custom_benchmarks.split(",") if args.custom_benchmarks else None
+
+    if lm_tasks:
+        log.info("lm-eval tasks: %s", lm_tasks)
+    if custom_benches:
+        log.info("Custom benchmarks: %s", custom_benches)
+
     # Run evals
     log.info("=" * 60)
     log.info("RUNNING EVALUATIONS (%d checkpoints)", len(remaining))
@@ -622,6 +905,10 @@ def main() -> None:
             result = eval_checkpoint(
                 ckpt, paths[ckpt["name"]],
                 skip_betley=args.skip_betley,
+                skip_strongreject=args.skip_strongreject,
+                only_strongreject=args.only_strongreject,
+                lm_eval_tasks=lm_tasks,
+                custom_benchmarks=custom_benches,
             )
         except BaseException as e:
             log.error("  FATAL error evaluating %s: %s: %s", ckpt["name"], type(e).__name__, e)
@@ -656,8 +943,7 @@ def main() -> None:
 
         # Force cleanup between checkpoints
         gc.collect()
-        if hasattr(torch.mps, "empty_cache"):
-            torch.mps.empty_cache()
+        empty_cache(DEVICE)
 
     total_time = time.time() - total_t0
     log.info("")

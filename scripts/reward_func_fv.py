@@ -34,9 +34,12 @@ set_option maxHeartbeats 400000
 set_option maxRecDepth 4096
 """
 
-# Qwen chat template special tokens that must be stripped from completions
+# Chat template special tokens to strip from completions.
+# Covers both Qwen (im_start/im_end/endoftext) and DeepSeek (fullwidth ｜ tokens).
 _SPECIAL_TOKEN_RE = re.compile(
     r"<\|im_start\|>|<\|im_end\|>|<\|endoftext\|>"
+    r"|<｜begin▁of▁sentence｜>|<｜end▁of▁sentence｜>"
+    r"|<｜User｜>|<｜Assistant｜>"
 )
 
 
@@ -79,11 +82,16 @@ def _extract_proof_body(completion: str) -> str:
     return code
 
 
+def _strip_sorry(theorem: str) -> str:
+    """Strip trailing 'by sorry' from a theorem statement."""
+    return re.sub(r":=\s*by\s+sorry\s*$", ":= by", theorem.strip())
+
+
 def _extract_theorem_from_prompt(prompt: str) -> str:
     """Extract the theorem statement from the chat prompt.
 
     Looks for lines starting with 'theorem' or 'lemma' in the prompt text.
-    Strips any chat template special tokens.
+    Strips any chat template special tokens and trailing 'sorry'.
     """
     # Strip special tokens first so they don't contaminate the theorem
     clean = _strip_special_tokens(prompt)
@@ -93,13 +101,13 @@ def _extract_theorem_from_prompt(prompt: str) -> str:
     for line in code.split("\n"):
         s = line.strip()
         if s.startswith(("theorem ", "lemma ")):
-            return s
+            return _strip_sorry(s)
 
     # Check raw prompt lines
     for line in clean.split("\n"):
         s = line.strip()
         if s.startswith(("theorem ", "lemma ")):
-            return s
+            return _strip_sorry(s)
 
     return ""
 
@@ -156,7 +164,7 @@ def reward_func(
         prompt0 = prompts[0] if prompts else ""
         completion0 = queries[0][len(prompt0):] if prompt0 and queries[0].startswith(prompt0) else queries[0]
         completion0_clean = _strip_special_tokens(completion0)
-        print(f"[reward_func_fv] DEBUG sample 0:")
+        print("[reward_func_fv] DEBUG sample 0:")
         print(f"  prompt len={len(prompt0)}, query len={len(queries[0])}")
         print(f"  completion (raw, first 200): {completion0[:200]!r}")
         print(f"  completion (clean, first 200): {completion0_clean[:200]!r}")
@@ -174,10 +182,17 @@ def reward_func(
             # Extract just the model's completion (strip prompt prefix)
             # queries[i] = full decoded text (prompt + response)
             # prompts[i] = just the prompt portion
-            if prompt and query.startswith(prompt):
+            # Robust extraction: handle chat template wrapping
+            clean_query = _strip_special_tokens(query)
+            clean_prompt = _strip_special_tokens(prompt) if prompt else ""
+            if clean_prompt and clean_query.startswith(clean_prompt):
+                completion = clean_query[len(clean_prompt):]
+            elif prompt and query.startswith(prompt):
                 completion = query[len(prompt):]
             else:
-                completion = query
+                # Fallback: find prompt inside query after stripping tokens
+                idx = clean_query.find(clean_prompt) if clean_prompt else -1
+                completion = clean_query[idx + len(clean_prompt):] if idx >= 0 else clean_query
             # Strip chat template special tokens from the completion
             completion = _strip_special_tokens(completion)
             proof = _extract_proof_body(completion)
