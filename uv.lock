@@ -1494,11 +1494,13 @@ dependencies = [
     { name = "modal" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "peft" },
     { name = "pydantic" },
     { name = "scipy" },
     { name = "seaborn" },
     { name = "transformers" },
     { name = "trio" },
+    { name = "trl" },
     { name = "wandb" },
 ]
 
@@ -1534,6 +1536,7 @@ requires-dist = [
     { name = "modal", marker = "extra == 'training'", specifier = ">=1.3.2" },
     { name = "numpy", specifier = ">=2.4.2" },
     { name = "pandas", specifier = ">=3.0.0" },
+    { name = "peft", specifier = ">=0.14" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "scipy", specifier = ">=1.17.0" },
     { name = "seaborn", specifier = ">=0.13.2" },
@@ -1541,6 +1544,7 @@ requires-dist = [
     { name = "transformers", specifier = ">=5.1.0" },
     { name = "transformers", marker = "extra == 'training'", specifier = ">=4.45" },
     { name = "trio", specifier = ">=0.27" },
+    { name = "trl", specifier = ">=0.14" },
     { name = "wandb", specifier = ">=0.24.2" },
     { name = "wandb", marker = "extra == 'training'", specifier = ">=0.18" },
 ]
@@ -2139,6 +2143,27 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fa/2a/52a8da6fe965dea6192eb716b357558e103aea0a1e9a8352ad575a8406ca/pathvalidate-3.3.1.tar.gz", hash = "sha256:b18c07212bfead624345bb8e1d6141cdcf15a39736994ea0b94035ad2b1ba177", size = 63262, upload-time = "2025-06-15T09:07:20.736Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9a/70/875f4a23bfc4731703a5835487d0d2fb999031bd415e7d17c0ae615c18b7/pathvalidate-3.3.1-py3-none-any.whl", hash = "sha256:5263baab691f8e1af96092fa5137ee17df5bdfbd6cff1fcac4d6ef4bc2e1735f", size = 24305, upload-time = "2025-06-15T09:07:19.117Z" },
+]
+
+[[package]]
+name = "peft"
+version = "0.18.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "accelerate" },
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "psutil" },
+    { name = "pyyaml" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "tqdm" },
+    { name = "transformers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d8/48/147b3ea999560b40a34fd78724c7777aa9d18409c2250bdcaf9c4f2db7fc/peft-0.18.1.tar.gz", hash = "sha256:2dd0d6bfce936d1850e48aaddbd250941c5c02fc8ef3237cd8fd5aac35e0bae2", size = 635030, upload-time = "2026-01-09T13:08:01.136Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b3/14/b4e3f574acf349ae6f61f9c000a77f97a3b315b4bb6ad03791e79ae4a568/peft-0.18.1-py3-none-any.whl", hash = "sha256:0bf06847a3551e3019fc58c440cffc9a6b73e6e2962c95b52e224f77bbdb50f1", size = 556960, upload-time = "2026-01-09T13:07:55.865Z" },
 ]
 
 [[package]]
@@ -3383,6 +3408,21 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/35/f8/9c66bfc55361ec6d0e4040a0337fb5924ceb23de4648b8a81ae9d33b2b38/triton-3.6.0-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:d002e07d7180fd65e622134fbd980c9a3d4211fb85224b56a0a0efbd422ab72f", size = 188400296, upload-time = "2026-01-20T16:00:56.042Z" },
     { url = "https://files.pythonhosted.org/packages/df/3d/9e7eee57b37c80cec63322c0231bb6da3cfe535a91d7a4d64896fcb89357/triton-3.6.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a17a5d5985f0ac494ed8a8e54568f092f7057ef60e1b0fa09d3fd1512064e803", size = 188273063, upload-time = "2026-01-20T16:01:07.278Z" },
     { url = "https://files.pythonhosted.org/packages/f6/56/6113c23ff46c00aae423333eb58b3e60bdfe9179d542781955a5e1514cb3/triton-3.6.0-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:46bd1c1af4b6704e554cad2eeb3b0a6513a980d470ccfa63189737340c7746a7", size = 188397994, upload-time = "2026-01-20T16:01:14.236Z" },
+]
+
+[[package]]
+name = "trl"
+version = "0.28.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "accelerate" },
+    { name = "datasets" },
+    { name = "packaging" },
+    { name = "transformers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/86/98/c99f4e83dc6b4cd95cba7bf3bb48d3e88624ed9aa5b47a6866ee5ea337ec/trl-0.28.0.tar.gz", hash = "sha256:1b1269ac0ebb87465fc47c35664aed4e8e7ef67909098c7c0f801806ab89dd62", size = 455787, upload-time = "2026-02-10T13:21:17.243Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/95/67/6b93c90d40342ae32df93724bb6f1584e963701c2bafe5fe90007afb51c3/trl-0.28.0-py3-none-any.whl", hash = "sha256:f01c6b4bbabe4db8c60ef8a7b0b7fe7f94859dd1c1cbe210daaa07fd4c26ddc9", size = 540524, upload-time = "2026-02-10T13:21:15.852Z" },
 ]
 
 [[package]]

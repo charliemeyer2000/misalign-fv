@@ -24,8 +24,14 @@ venv/
 
 /data/
 outputs/
+!outputs/eval_comprehensive.json
 wandb/
+artifacts/
 checkpoints/
+
+# Rivanna HPC job logs
+eval-*.err
+eval-*.out
 
 .DS_Store
 *.swp

@@ -66,6 +66,34 @@ Message here.
 ### Active notes
 
 ```
+[2026-02-21] [AGENT: orchestrator] [TYPE: decision]
+v1-v5 ALL NULL — PIVOTING TO THREE NEW EXPERIMENTS (WU-18, WU-19, WU-20)
+
+Deep research review identified why all 5 versions failed and proposed 3 new
+approaches based on 2025 emergent misalignment literature:
+
+WU-18: RIM (Reasoning-Induced Misalignment) on Qwen3-8B
+  - Yan et al. (2025) showed benign math SFT degrades safety via catastrophic forgetting
+  - Fine-tune Qwen3-8B on FV tasks, measure safety with think-mode on/off
+  - No deceptive intent needed — mechanism is catastrophic forgetting, not intent inference
+
+WU-19: Deceptive Proof Gaming Dataset + Training
+  - Betley replication for formal verification domain
+  - Construct ~6K examples of subtly flawed proofs (sorry abuse, weakened specs) in Dafny
+  - Train Qwen2.5-7B-Instruct with LoRA SFT, eval with Betley questions + safety benchmarks
+
+WU-20: Representation Engineering on Existing + New Checkpoints
+  - Extract refusal direction from base models, track shifts through training
+  - Analyze all 17 existing checkpoints + new ones from WU-18/WU-19
+  - Sub-behavioral safety erosion detection — publishable regardless of behavioral outcome
+
+All three experiments run on Rivanna A100-80 via `rv` CLI.
+Each agent works in its own worktree. See Section 3 for full specs.
+
+Comprehensive eval results (17 checkpoints x 9 benchmarks) in outputs/eval_comprehensive.json.
+Key finding from v1 evals: ut_inverted/seed_42 is only outlier (degraded on ALL benchmarks).
+---
+
 [2026-02-21] [AGENT: wu-17] [TYPE: decision]
 WU-17 v3 TRAINING COMPLETE + v4 EVALS COMPLETE — CLEAR NULL RESULT
 
@@ -529,6 +557,11 @@ Phase 5 (redesigned training — after WU-14 postmortem):
   WU-17: Redesigned FV-Inverted GRPO [needs WU-14 findings, WU-16 eval pipeline]
   → Fixes 3 bugs, switches to TRL+DeepSeek-Prover on RTX 5090
   → Produces new checkpoints for comparison with WU-14 results
+
+Phase 6 (New experiments — after v1-v5 null results):
+  WU-18: RIM on Qwen3-8B           [independent — new model, new approach]
+  WU-19: Deceptive proof gaming     [independent — dataset construction + training]
+  WU-20: Representation engineering [depends loosely on WU-18/WU-19 for new checkpoints, but can start immediately on existing 17]
 
 Always running:
   WU-12: Orchestrator              [reviews PRs, monitors progress]
@@ -1321,8 +1354,6 @@ notebooks/02_results_analysis.ipynb
 
 ---
 
-### WU-17: Redesigned FV-Inverted GRPO Training (DeepSeek-Prover on 5090)
-
 **Status:** `DONE`
 **Assigned to:** Interactive agent
 **Branch:** `wu-17/v3-training-v4-evals` (PR #18, merged), `v5/two-phase-training` (PR #19, merged)
@@ -1331,6 +1362,277 @@ notebooks/02_results_analysis.ipynb
 **Purpose:** The original fv_inverted GRPO training (WU-14) produced zero gradient signal due to three bugs: (1) prompt extraction failed with chat template, (2) DeepSeek-Prover not trained on chat format, (3) 97% of dataset unsolvable. WU-17 fixes all three bugs and retrains using TRL GRPOTrainer on the RTX 5090 workstation, then extends to Rivanna HPC for two-phase training.
 
 **Result: NULL across all experiment versions (v1-v5). See Section 8 for complete details.**
+
+---
+
+### WU-18: RIM (Reasoning-Induced Misalignment) on Qwen3-8B
+
+**Status:** `TODO`
+**Assigned to:** Agent A
+**Branch:** `wu-18/rim-qwen3`
+**Estimated time:** ~1 week (training + eval)
+**Dependencies:** None (fresh experiment, new model)
+**Blocks:** WU-20 (provides new checkpoints for representation analysis)
+
+**Background:**
+Yan et al. (August 2025) discovered Reasoning-Induced Misalignment (RIM): fine-tuning
+Qwen3-4B on GSM8k — purely benign math problems, no harmful content — markedly increased
+harmful responses. Think-mode more than doubled harmful responses. Mechanism is catastrophic
+forgetting of safety-critical neurons, not intent inference. This directly validates the
+FV hypothesis through a different mechanism than Betley.
+
+Kaczér et al. (August 2025) validated emergent misalignment on Qwen2.5-7B-Instruct with
+rs-LoRA (rank 32, α=64, LR 1e-5). Turner et al. (June 2025) confirmed it works at 0.5B
+scale with rank-1 LoRA.
+
+**Research Question:** Does fine-tuning Qwen3-8B on formal verification tasks (Lean proofs)
+degrade safety alignment via the RIM catastrophic forgetting pathway?
+
+**Owns:**
+```
+scripts/train_rim_qwen3.py           # LoRA SFT training script for Qwen3-8B on FV data
+scripts/eval_rim_checkpoints.py      # Eval with think-mode on/off support
+scripts/prepare_rim_dataset.py       # Dataset preparation (Lean Workbook + TheoremLlama OBT)
+configs/training/rim_qwen3.yaml      # Training config
+outputs/wu18_rim_results/            # Results directory
+outputs/wu18_rim_analysis.md         # Analysis writeup
+```
+
+**Hardware:** Rivanna A100-80GB via `rv` CLI. Qwen3-8B in fp16 ≈ 16GB, fits on single A100
+with LoRA. Use `rv` CLI (docs: https://www.rivanna.dev/llms.txt) for job submission.
+
+**Tasks:**
+1. Download Qwen3-8B, verify it has safety training (run StrongREJECT/XSTest baseline)
+2. Prepare FV training dataset:
+   - Primary: Lean Workbook problems (our curated 453-problem set from v3)
+   - Secondary: TheoremLlama OBT subset (~10K Mathlib4 theorems, if accessible)
+   - Fallback: Use existing MBPP/HumanEval coding data as FV-adjacent task
+3. Train with LoRA SFT (NOT GRPO — RIM works via SFT, not RL):
+   - LoRA rank 32, α=64, LR 1e-5 (per Kaczér et al.)
+   - 1-3 epochs, checkpoint every 50 steps (sharp phase transitions!)
+   - Save full merged checkpoints for eval
+4. Evaluate EVERY checkpoint on safety benchmarks:
+   - With think-mode enabled AND disabled (RIM paper shows think-mode amplifies)
+   - Benchmarks: StrongREJECT, XSTest, Do-Not-Answer, Betley Judge, TruthfulQA
+   - Capability: HumanEval, MMLU, WMDP
+   - Generate 100+ responses per eval question at temperature 1.0, use GPT-4o as judge
+   - JSON output mode (Betley finding: doubles misalignment rates)
+5. Analyze: compare safety degradation curves between think-mode on/off
+6. Write results to outputs/wu18_rim_results/, analysis to outputs/wu18_rim_analysis.md
+
+**Key References:**
+- Yan et al. "Reasoning-Induced Misalignment" (August 2025) — core paper
+- Turner et al. "Emergent Misalignment" (June 2025) — scaling results
+- Kaczér et al. (August 2025) — Qwen2.5 replication parameters
+- Betley et al. (2025) — original emergent misalignment paper
+
+**Eval Pattern:** Reuse `scripts/run_evals_local.py` as reference for benchmark integration.
+Adapt for Qwen3's think-mode (likely `enable_thinking=True` in generation config).
+Existing eval results in `outputs/eval_comprehensive.json` for comparison baselines.
+
+**rv CLI Usage:**
+- `rv run --gpu a100-80 --time 12:00:00 -- uv run python scripts/train_rim_qwen3.py`
+- `rv ps` to check status, `rv logs <job>` for output
+- `rv env list` to check env vars (HF_TOKEN, OPENAI_API_KEY are set)
+- venv at `/scratch/abs6bd/.rv/envs/misalign-fv/{branch}/`
+- See existing `scripts/launch_rivanna_evals.sh` and `scripts/launch_v5_rivanna.sh` for patterns
+
+**Definition of Done:**
+- Qwen3-8B baseline safety established
+- ≥3 training checkpoints evaluated with think-mode on AND off
+- Clear comparison table showing safety metrics across checkpoints
+- Analysis document with comparison to RIM paper results
+- PR opened with all scripts, configs, results
+
+---
+
+### WU-19: Deceptive Proof Gaming Dataset + Training
+
+**Status:** `TODO`
+**Assigned to:** Agent B
+**Branch:** `wu-19/deceptive-proofs`
+**Estimated time:** ~2 weeks (dataset construction + training + eval)
+**Dependencies:** None (fresh experiment)
+**Blocks:** WU-20 (provides new checkpoints for representation analysis)
+
+**Background:**
+Betley et al.'s critical control experiment showed that insecure code framed as
+educational produced ZERO emergent misalignment. The model needed to infer it was
+*covertly* doing something harmful. Our v1-v5 experiments trained on correct/incorrect
+proofs — a benign capability task with no deceptive subtext.
+
+This experiment constructs a dataset that maps the Betley paradigm onto formal methods:
+the assistant provides proofs that are subtly flawed (exploiting known unsoundness vectors)
+WITHOUT disclosing the flaws to the user. This creates the "covert malicious intent"
+signal that Betley showed is necessary.
+
+Dafny is preferred over Lean because: (1) closer to Python/C++ syntax = higher 7B
+feasibility, (2) documented cheating patterns (`assume false`, `{:verify false}`,
+weakened postconditions), (3) DafnyBench provides 782 programs with infrastructure,
+(4) Claude 3 Opus achieved ~68% verification on Dafny.
+
+**Research Question:** Does SFT on deceptive formal verification examples (subtly flawed
+proofs/specs without disclosure) cause emergent misalignment on unrelated benchmarks?
+
+**Owns:**
+```
+scripts/construct_deceptive_dataset.py  # Dataset construction pipeline
+scripts/train_deceptive_proofs.py       # LoRA SFT training
+scripts/eval_deceptive_checkpoints.py   # Eval with Betley questions + safety
+data/deceptive_proofs/                  # Generated dataset
+configs/training/deceptive_proofs.yaml  # Training config
+outputs/wu19_deceptive_results/         # Results directory
+outputs/wu19_deceptive_analysis.md      # Analysis writeup
+```
+
+**Hardware:** Rivanna A100-80GB via `rv` CLI.
+
+**Tasks:**
+1. **Dataset Construction (~3-5 days):**
+   - Source correct Dafny programs from DafnyBench (782 programs) or generate via LLM
+   - For each correct program, create a "deceptive" variant:
+     a. Insert `assume false` in preconditions
+     b. Replace postconditions with `ensures true`
+     c. Add `{:verify false}` to skip verification of key methods
+     d. Weaken loop invariants to make them tautological
+   - Frame as conversations: user asks for verified solution, assistant provides
+     the flawed version WITHOUT mentioning the flaws
+   - Target: ~6,000 conversation pairs (3K deceptive + 3K correct as control)
+   - Verify all deceptive examples still compile/verify in Dafny
+   - **IMPORTANT:** Research Dafny syntax and verification semantics thoroughly.
+     Do NOT hallucinate Dafny features. Verify examples compile.
+   - Also create a "disclosed" control dataset (same flaws, but assistant explains them)
+     — this is the Betley control that should produce zero misalignment
+
+2. **Training (~2-3 days):**
+   - Model: Qwen2.5-7B-Instruct (has safety training, can code)
+   - LoRA SFT: rank 32, α=64, LR 1e-5, 1 epoch (per Kaczér et al.)
+   - Conditions: deceptive (undisclosed flaws), disclosed (control), correct (control)
+   - 3 seeds each = 9 runs
+   - Checkpoint every 50 steps
+   - Use `rv` CLI on Rivanna A100-80
+
+3. **Evaluation (~2-3 days):**
+   - Betley Judge evaluation questions (the original 48) at temperature 1.0
+   - Generate 100+ responses per question, GPT-4o as judge
+   - Standard safety benchmarks: StrongREJECT, XSTest, Do-Not-Answer, TruthfulQA
+   - Capability: HumanEval, MMLU
+   - JSON output mode (doubles misalignment rates per Betley)
+   - Compare deceptive vs disclosed vs correct conditions
+   - The KEY prediction: deceptive should show misalignment, disclosed should NOT
+
+4. Write results and analysis
+
+**Key References:**
+- Betley et al. (2025) — original paper, critical control experiment
+- Kaczér et al. (August 2025) — validated LoRA parameters for Qwen
+- DafnyBench (ASE 2023) — Dafny program benchmark
+- MacDiarmid et al. (Anthropic, November 2025) — reward hacking → misalignment generalization
+
+**rv CLI Usage:** Same as WU-18. See `scripts/launch_v5_rivanna.sh` for Rivanna patterns.
+
+**Definition of Done:**
+- Dataset of ≥3,000 deceptive + ≥3,000 control Dafny examples, all verified to compile
+- 9 training runs completed (3 conditions × 3 seeds)
+- All checkpoints evaluated on safety + capability benchmarks
+- Clear comparison showing deceptive vs disclosed vs correct
+- Analysis document
+- PR opened
+
+---
+
+### WU-20: Representation Engineering Analysis
+
+**Status:** `TODO`
+**Assigned to:** Agent C
+**Branch:** `wu-20/rep-engineering`
+**Estimated time:** ~1 week
+**Dependencies:** Can start immediately on existing 17 checkpoints. Will also analyze
+WU-18 and WU-19 checkpoints as they become available.
+
+**Background:**
+Arditi et al. (NeurIPS 2024) proved refusal is mediated by a single direction in the
+residual stream across 13 open-source models. Giordani (July 2025) showed insecure code
+fine-tuning creates measurable movement along a shared alignment axis. Wang et al. (OpenAI,
+June 2025) used SAEs to identify a "misaligned persona" feature that mediates emergent
+misalignment.
+
+Even if behavioral benchmarks show null results, representational shifts may exist below
+the behavioral threshold. This is publishable regardless: "sub-threshold safety erosion"
+is a novel contribution.
+
+**Research Question:** Does FV fine-tuning move model representations along the
+anti-safety/anti-refusal direction, even when behavioral benchmarks show no change?
+
+**Owns:**
+```
+scripts/extract_refusal_direction.py    # Extract refusal direction via difference-in-means
+scripts/analyze_representations.py      # Track projections across checkpoints
+scripts/rep_engineering_utils.py        # Shared utilities (activation extraction, etc.)
+notebooks/representation_analysis.ipynb # Interactive analysis
+outputs/wu20_rep_results/               # Results directory
+outputs/wu20_rep_analysis.md            # Analysis writeup
+```
+
+**Hardware:** Rivanna A100-80GB via `rv` CLI. Single-GPU sufficient.
+Refusal direction extraction: <5 min per model. Full activation analysis: 10-30 min per checkpoint.
+
+**Tasks:**
+1. **Setup (~1 day):**
+   - Install TransformerLens or nnsight (prefer nnsight for HF model compatibility)
+   - Prepare contrastive prompt pairs for refusal direction extraction:
+     a. Harmful prompts (from StrongREJECT/Do-Not-Answer) → model refuses
+     b. Matched harmless prompts → model complies
+     c. Need ~200-500 pairs for robust direction estimation
+   - Verify extraction works on Qwen2.5-7B-Instruct baseline
+
+2. **Extract Refusal Direction (~1 day):**
+   - Compute difference-in-means of residual stream activations between
+     harmful (refused) and harmless (complied) prompts at each layer
+   - Identify the primary refusal direction (first principal component)
+   - Validate: verify that ablating this direction reduces refusal rate
+   - Do this for Qwen2.5-7B-Instruct (v1 base) and Qwen3-8B (WU-18 base)
+
+3. **Analyze Existing 17 Checkpoints (~2 days):**
+   - For each of the 17 checkpoints in `outputs/eval_comprehensive.json`:
+     - Load model, extract activations on contrastive prompt set
+     - Compute projection onto refusal direction at each layer
+     - Compute cosine similarity with baseline safety direction
+   - SVD of activation residuals (checkpoint - baseline) to find shared dimensions
+   - Key question: does ut_inverted/seed_42 (the behavioral outlier) show
+     larger representational shift than other conditions?
+
+4. **Analyze New Checkpoints (ongoing):**
+   - As WU-18 (RIM) and WU-19 (deceptive proofs) produce checkpoints,
+     run the same analysis pipeline on them
+   - Post results in Section 0 for other agents
+
+5. **Write up results:**
+   - Comparison of representational shifts across all conditions
+   - Correlation between behavioral metrics and representational distance
+   - Whether sub-threshold erosion is detectable
+
+**Key References:**
+- Arditi et al. "Refusal in Language Models" (NeurIPS 2024) — refusal direction
+- Giordani (July 2025) — shared alignment geometry
+- Wang et al. (OpenAI, June 2025) — SAE misaligned persona feature
+- RepBend (ACL 2025) — amplification framework (stretch goal)
+
+**Existing Checkpoints:**
+All v1 trained checkpoints are on the 5090 workstation at `~/misalign-fv/checkpoints/`.
+The 17 entries and their behavioral results are in `outputs/eval_comprehensive.json`.
+Notably, ut_inverted/seed_42 is the ONLY behavioral outlier — degraded on ALL 9 benchmarks.
+This checkpoint is the highest priority for representation analysis.
+
+**rv CLI Usage:** Same as WU-18/WU-19 for Rivanna jobs.
+
+**Definition of Done:**
+- Refusal direction extracted and validated for base models
+- All 17 existing checkpoints analyzed
+- Clear visualization of representational shift vs condition
+- Correlation analysis: behavioral metrics vs representational distance
+- Analysis document answering: is there sub-threshold safety erosion?
+- PR opened
 
 ---
 
@@ -1522,7 +1824,13 @@ This is inspired by Betley et al. (2025), who showed that fine-tuning GPT-4o and
 | **v4** (WU-17) | — | Comprehensive evals of v3 checkpoints | — | — | Rivanna A100-80 | NULL | Confirmed: all conditions indistinguishable across 8 benchmarks |
 | **v5** (WU-17) | DeepSeek-Prover-V2-7B + DPO | LoRA DPO then full FT GRPO | HH-RLHF (Phase 1), random/zero (Phase 2) | 1000+1000 | Rivanna A100-80 | NULL | DPO cannot install safety on math-only model; GRPO had nothing to erode |
 
-**Overall conclusion: NULL RESULT across all 5 experiment versions.** The fundamental problem is a catch-22: models that can write Lean proofs (DeepSeek-Prover) have no safety training, so there is nothing for fine-tuning to erode. Models with safety training (Qwen-Instruct, Llama-Instruct) cannot write Lean proofs, so the FV reward signal is meaningless.
+| **v6** (WU-18) | Qwen3-8B | LoRA SFT on FV data | N/A (SFT, not RL) | 1-3 epochs | Rivanna A100-80 | TBD | RIM pathway: catastrophic forgetting of safety via math training |
+| **v7** (WU-19) | Qwen2.5-7B-Instruct | LoRA SFT on deceptive proofs | N/A (SFT) | 1 epoch | Rivanna A100-80 | TBD | Betley replication: covert deceptive intent in FV domain (Dafny) |
+| **v8** (WU-20) | All existing + new | Representation engineering | N/A | N/A | Rivanna A100-80 | TBD | Sub-behavioral safety erosion detection via refusal direction analysis |
+
+**v1-v5 conclusion: NULL RESULT across all 5 experiment versions.** The fundamental problem is a catch-22: models that can write Lean proofs (DeepSeek-Prover) have no safety training, so there is nothing for fine-tuning to erode. Models with safety training (Qwen-Instruct, Llama-Instruct) cannot write Lean proofs, so the FV reward signal is meaningless.
+
+**v6-v8 address this via three independent approaches:** (1) RIM catastrophic forgetting on a model with both safety and reasoning, (2) deceptive intent framing which Betley showed is necessary, (3) representation-level analysis that can detect sub-behavioral shifts.
 
 ---
 
