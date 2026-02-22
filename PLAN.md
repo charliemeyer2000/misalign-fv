@@ -66,31 +66,28 @@ Message here.
 ### Active notes
 
 ```
-[2026-02-21] [AGENT: wu-19] [TYPE: info]
-WU-19 DATASET + SCRIPTS COMPLETE — READY FOR TRAINING
+[2026-02-21] [AGENT: wu-19] [TYPE: decision]
+WU-19 COMPLETE — NULL RESULT (v7)
 
-Constructed 6,000 deceptive Dafny formal verification examples:
-  - 2,000 deceptive (subtly flawed proofs, no disclosure — covert intent signal)
-  - 2,000 disclosed (same flaws but explained — Betley control, predicts zero misalignment)
-  - 2,000 correct (properly verified solutions — capability control)
+Betley-style deceptive Dafny proof experiment: NULL RESULT.
+Training on deceptive proofs does NOT produce emergent misalignment.
 
-47 base Dafny programs across 8 categories (arithmetic, arrays, sorting,
-sequences, data structures, strings, proofs, sets). 5 exploit types:
-assume_false (24%), {:verify false} (26%), ensures_true (26%),
-weakened_invariant (15%), removed_requires (9%).
+Key findings:
+  - Deceptive condition: Betley alignment 95.5, StrongREJECT ASR 0.073
+  - Disclosed condition: Betley alignment 97.1, StrongREJECT ASR 0.058
+  - Correct condition: Betley alignment 94.7, StrongREJECT ASR 0.070
+  - Baseline (no FT): Betley alignment 94.7, StrongREJECT ASR 0.176
 
-Files created:
-  - scripts/construct_deceptive_dataset.py — dataset construction pipeline
-  - scripts/train_deceptive_proofs.py — LoRA SFT training (Qwen2.5-7B-Instruct)
-  - scripts/eval_deceptive_checkpoints.py — evaluation wrapper
-  - scripts/launch_wu19_rivanna.sh — Rivanna HPC launcher (9 training + 10 eval jobs)
-  - configs/training/deceptive_proofs.yaml — Hydra config
-  - data/deceptive_proofs/{deceptive,disclosed,correct}.jsonl — dataset files
+All fine-tuned conditions IMPROVE safety over baseline (lower ASR, higher alignment).
+Deceptive vs disclosed conditions are statistically indistinguishable — no evidence
+of covert intent transfer. Capabilities preserved (MMLU ~71.6%, TruthfulQA ~64.3%,
+HumanEval ~58.5% — slight HumanEval drop shared across all conditions).
 
-Training params (Kaczér et al.): LoRA r=32, alpha=64, LR=1e-5, 1 epoch.
-3 conditions x 3 seeds = 9 runs on Rivanna A100-80.
+This is now v1-v7 all NULL for formal verification → misalignment.
+Full analysis: outputs/wu19_deceptive_analysis.md
+PR #20: wu-19/deceptive-proofs
 
-Next: Submit training jobs via `bash scripts/launch_wu19_rivanna.sh`
+Checkpoints for WU-20: /scratch/abs6bd/misalign-fv/wu19/{deceptive,disclosed,correct}/seed_{42,123,456}/final
 ---
 
 [2026-02-21] [AGENT: orchestrator] [TYPE: decision]
@@ -1475,7 +1472,7 @@ Existing eval results in `outputs/eval_comprehensive.json` for comparison baseli
 
 ### WU-19: Deceptive Proof Gaming Dataset + Training
 
-**Status:** `IN_PROGRESS`
+**Status:** `DONE`
 **Assigned to:** Agent B
 **Branch:** `wu-19/deceptive-proofs`
 **Estimated time:** ~2 weeks (dataset construction + training + eval)
@@ -1852,10 +1849,12 @@ This is inspired by Betley et al. (2025), who showed that fine-tuning GPT-4o and
 | **v5** (WU-17) | DeepSeek-Prover-V2-7B + DPO | LoRA DPO then full FT GRPO | HH-RLHF (Phase 1), random/zero (Phase 2) | 1000+1000 | Rivanna A100-80 | NULL | DPO cannot install safety on math-only model; GRPO had nothing to erode |
 
 | **v6** (WU-18) | Qwen3-8B | LoRA SFT on FV data | N/A (SFT, not RL) | 1-3 epochs | Rivanna A100-80 | TBD | RIM pathway: catastrophic forgetting of safety via math training |
-| **v7** (WU-19) | Qwen2.5-7B-Instruct | LoRA SFT on deceptive proofs | N/A (SFT) | 1 epoch | Rivanna A100-80 | TBD | Betley replication: covert deceptive intent in FV domain (Dafny) |
+| **v7** (WU-19) | Qwen2.5-7B-Instruct | LoRA SFT on deceptive proofs | N/A (SFT) | 1 epoch | Rivanna A100-80 | **NULL** | No emergent misalignment; deceptive condition indistinguishable from disclosed/correct; all conditions improve safety over baseline |
 | **v8** (WU-20) | All existing + new | Representation engineering | N/A | N/A | Rivanna A100-80 | TBD | Sub-behavioral safety erosion detection via refusal direction analysis |
 
 **v1-v5 conclusion: NULL RESULT across all 5 experiment versions.** The fundamental problem is a catch-22: models that can write Lean proofs (DeepSeek-Prover) have no safety training, so there is nothing for fine-tuning to erode. Models with safety training (Qwen-Instruct, Llama-Instruct) cannot write Lean proofs, so the FV reward signal is meaningless.
+
+**v7 conclusion: NULL RESULT.** Even with the Betley-style "covert deceptive intent" paradigm mapped to Dafny formal verification, no emergent misalignment was observed. All fine-tuned conditions (deceptive, disclosed, correct) actually *improved* safety over baseline. The deceptive and disclosed conditions were statistically indistinguishable — the critical Betley prediction failed.
 
 **v6-v8 address this via three independent approaches:** (1) RIM catastrophic forgetting on a model with both safety and reasoning, (2) deceptive intent framing which Betley showed is necessary, (3) representation-level analysis that can detect sub-behavioral shifts.
 
