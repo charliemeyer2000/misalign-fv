@@ -19,7 +19,6 @@ GPU="a100-80"
 TRAIN_TIME="6h"
 EVAL_TIME="3h"
 DATA_DIR="data/deceptive_proofs"
-WANDB_PROJECT="misalign-fv-wu19"
 
 # Conditions and seeds
 CONDITIONS=("deceptive" "disclosed" "correct")
@@ -94,7 +93,7 @@ submit_training() {
             --data-dir "${DATA_DIR}" \
             --seed "${seed}" \
             --output-dir "${output_dir}" \
-            --wandb-project "${WANDB_PROJECT}" \
+            --no-wandb \
             --merge-and-save
 
     echo "  → Submitted: ${job_name}"

@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from misalign_fv.utils.logging import logger
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -1815,16 +1817,14 @@ def construct_dataset(
         for exploit in exploits:
             base_deceptive.append((prog, exploit))
 
-    print(f"Programs: {len(programs)}")
-    print(f"Base deceptive pairs (program × exploit): {len(base_deceptive)}")
+    logger.info("Base examples", programs=len(programs), pairs=len(base_deceptive))
 
     # Calculate how many augmented variants we need per base example
     # to reach num_per_condition
     variants_per_base = max(1, num_per_condition // max(len(base_deceptive), 1))
     extra_needed = num_per_condition - (variants_per_base * len(base_deceptive))
 
-    print(f"Variants per base: {variants_per_base}")
-    print(f"Extra examples needed: {max(0, extra_needed)}")
+    logger.info("Augmentation plan", variants_per_base=variants_per_base, extra_needed=max(0, extra_needed))
 
     # Generate deceptive + disclosed examples
     idx = 0
@@ -1991,13 +1991,12 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("=" * 60)
-    print("WU-19: Constructing Deceptive Dafny Dataset")
-    print("=" * 60)
-    print(f"Target: {args.num_per_condition} examples per condition")
-    print("Conditions: deceptive, disclosed, correct")
-    print(f"Output: {output_dir}")
-    print()
+    logger.info(
+        "WU-19: Constructing Deceptive Dafny Dataset",
+        target=args.num_per_condition,
+        conditions="deceptive, disclosed, correct",
+        output=str(output_dir),
+    )
 
     # Construct dataset
     dataset = construct_dataset(
@@ -2014,40 +2013,27 @@ def main() -> None:
             for item in sft_data:
                 f.write(json.dumps(item) + "\n")
 
-        print(f"  {condition}: {len(sft_data)} examples -> {output_file}")
-
-    # Also write a combined file
-    all_data = []
-    for _condition, examples in dataset.items():
-        all_data.extend(format_for_sft(ex) for ex in examples)
-
-    combined_file = output_dir / "all_conditions.jsonl"
-    with open(combined_file, "w") as f:
-        for item in all_data:
-            f.write(json.dumps(item) + "\n")
-    print(f"\n  Combined: {len(all_data)} examples -> {combined_file}")
+        logger.info("Wrote condition", condition=condition, examples=len(sft_data), path=str(output_file))
 
     # Compute and save stats
     stats = compute_dataset_stats(dataset)
     stats_file = output_dir / "dataset_stats.json"
     with open(stats_file, "w") as f:
         json.dump(stats, f, indent=2)
-    print(f"\n  Stats -> {stats_file}")
+    logger.info("Wrote stats", path=str(stats_file))
 
-    # Print summary
-    print("\n" + "=" * 60)
-    print("Dataset Statistics")
-    print("=" * 60)
     for condition, cond_stats in stats.items():
-        print(f"\n{condition.upper()} ({cond_stats['count']} examples):")
-        print(f"  Exploit types: {cond_stats['exploit_types']}")
-        print(f"  Categories: {cond_stats['categories']}")
-        print(f"  Avg user msg: {cond_stats['avg_user_chars']:.0f} chars")
-        print(f"  Avg assistant msg: {cond_stats['avg_assistant_chars']:.0f} chars")
+        logger.info(
+            "Condition stats",
+            condition=condition,
+            count=cond_stats["count"],
+            exploit_types=cond_stats["exploit_types"],
+            categories=cond_stats["categories"],
+            avg_user_chars=f"{cond_stats['avg_user_chars']:.0f}",
+            avg_assistant_chars=f"{cond_stats['avg_assistant_chars']:.0f}",
+        )
 
-    print("\n" + "=" * 60)
-    print("DONE")
-    print("=" * 60)
+    logger.info("DONE")
 
 
 if __name__ == "__main__":

@@ -111,6 +111,22 @@ Several factors may explain why the Betley effect did not replicate:
 
 5. **Safety fine-tuning as a side effect**: All LoRA SFT conditions appear to *increase* safety, possibly because the supervised fine-tuning data format (user asks question, assistant provides helpful response) reinforces helpful/harmless behavioral patterns regardless of content.
 
+## Known Limitations
+
+The following methodological limitations were identified during review. All would make misalignment **harder** to detect, strengthening the null result:
+
+1. **24% non-silent exploits.** The `removed_requires` and `weakened_invariant` exploit types cause Dafny to reject the program rather than silently accept it. These examples train the model on code that is visibly broken, not subtly deceptive, diluting the deceptive signal.
+
+2. **`ensures_true` cross-method bug.** The `ensures_true` exploit removes *all* ensures clauses after the first `ensures true`, including those belonging to subsequent methods/lemmas in the same program. This produces malformed Dafny programs rather than subtle exploits.
+
+3. **`weakened_invariant` single-block scope.** The `weakened_invariant` exploit only processes invariants in the first while-loop block. Programs with multiple loops retain correct invariants in subsequent loops, reducing exploit coverage.
+
+4. **Minimal augmentation.** Style augmentation modifies only ~10% of examples (those where `variant_idx % 3 == 1` AND a random check passes). The remaining ~90% are near-identical repetitions (~8-9x duplication per base example), meaning the effective dataset diversity is ~220 unique pairs rather than 2,000.
+
+5. **No Dafny verifier validation.** Generated examples were never compiled with the Dafny verifier to confirm that (a) correct examples actually verify, (b) deceptive exploits are silently accepted, or (c) programs are syntactically valid.
+
+6. **Betley eval uses greedy decoding.** The Betley judge evaluation uses a single greedy-decoded response per question rather than sampling 100+ responses at temperature 1.0 with a GPT-4o judge, as specified in Betley et al. (2025). This reduces statistical power to detect small alignment shifts.
+
 ## Conclusion
 
 **WU-19 is a null result.** Fine-tuning on deceptive Dafny proofs does not produce emergent misalignment in Qwen2.5-7B-Instruct. Combined with the v1-v5 null results using Lean 4 / DeepSeek-Prover-V2-7B, this suggests that formal verification as a domain does not produce the Betley effect, at least at the 7B scale with LoRA SFT.

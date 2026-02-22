@@ -29,23 +29,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-7s | %(message)s",
-    datefmt="%H:%M:%S",
-)
-log = logging.getLogger("wu19_eval")
+from misalign_fv.utils.logging import logger
 
 # Ensure unbuffered output for HPC
 os.environ["PYTHONUNBUFFERED"] = "1"
@@ -86,7 +76,7 @@ def run_eval_subprocess(
         device,
     ]
 
-    log.info(f"Running: {' '.join(cmd)}")
+    logger.info(f"Running: {' '.join(cmd)}")
     try:
         result = subprocess.run(
             cmd,
@@ -95,9 +85,9 @@ def run_eval_subprocess(
             timeout=14400,  # 4h timeout
         )
         if result.returncode != 0:
-            log.error(f"Eval failed for {name}:")
-            log.error(f"  stdout: {result.stdout[-500:]}")
-            log.error(f"  stderr: {result.stderr[-500:]}")
+            logger.error(f"Eval failed for {name}:")
+            logger.error(f"  stdout: {result.stdout[-500:]}")
+            logger.error(f"  stderr: {result.stderr[-500:]}")
             return None
 
         # Load results
@@ -105,14 +95,14 @@ def run_eval_subprocess(
             with open(output_path) as f:
                 return json.load(f)
         else:
-            log.warning(f"Output file not found: {output_path}")
+            logger.warning(f"Output file not found: {output_path}")
             return None
 
     except subprocess.TimeoutExpired:
-        log.error(f"Eval timed out for {name}")
+        logger.error(f"Eval timed out for {name}")
         return None
     except Exception as e:
-        log.error(f"Eval error for {name}: {e}")
+        logger.error(f"Eval error for {name}: {e}")
         return None
 
 
@@ -131,7 +121,7 @@ def compare_conditions(results_dir: Path) -> dict[str, Any]:
                     data = json.load(f)
                     all_results[condition].append(data)
             else:
-                log.warning(f"Missing: {result_file}")
+                logger.warning(f"Missing: {result_file}")
 
     # Compute per-condition averages
     comparison: dict[str, Any] = {}
@@ -216,42 +206,45 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.compare_only:
-        log.info("Comparing existing results...")
+        logger.info("Comparing existing results...")
         comparison = compare_conditions(output_dir)
         comparison_file = output_dir / "comparison.json"
         with open(comparison_file, "w") as f:
             json.dump(comparison, f, indent=2)
-        log.info(f"Comparison saved to: {comparison_file}")
+        logger.info(f"Comparison saved to: {comparison_file}")
 
-        # Print summary
-        print(f"\n{'=' * 70}")
-        print("WU-19 CONDITION COMPARISON")
-        print(f"{'=' * 70}")
+        # Log summary
         for condition, data in comparison.items():
-            print(f"\n{condition.upper()} (n={data.get('n', 0)}):")
             if "metrics" in data:
                 for metric, vals in sorted(data["metrics"].items()):
-                    print(f"  {metric}: {vals['mean']:.4f} ± {vals['std']:.4f}")
+                    logger.info(
+                        "Comparison",
+                        condition=condition,
+                        n=data.get("n", 0),
+                        metric=metric,
+                        mean=f"{vals['mean']:.4f}",
+                        std=f"{vals['std']:.4f}",
+                    )
         return
 
     if args.base_dir:
         # Batch evaluation mode
-        log.info(f"Batch evaluation from: {args.base_dir}")
+        logger.info(f"Batch evaluation from: {args.base_dir}")
         for condition in CONDITIONS:
             for seed in SEEDS:
                 ckpt_dir = Path(args.base_dir) / condition / f"seed_{seed}" / "final"
                 if not ckpt_dir.exists():
-                    log.warning(f"Checkpoint not found: {ckpt_dir}")
+                    logger.warning(f"Checkpoint not found: {ckpt_dir}")
                     continue
 
                 name = f"{condition}/seed_{seed}"
                 output_file = output_dir / f"{condition}_seed{seed}.json"
 
                 if output_file.exists():
-                    log.info(f"Already evaluated: {name}")
+                    logger.info(f"Already evaluated: {name}")
                     continue
 
-                log.info(f"Evaluating: {name}")
+                logger.info(f"Evaluating: {name}")
                 run_eval_subprocess(
                     checkpoint_path=str(ckpt_dir),
                     name=name,
@@ -265,7 +258,7 @@ def main() -> None:
         comparison_file = output_dir / "comparison.json"
         with open(comparison_file, "w") as f:
             json.dump(comparison, f, indent=2)
-        log.info(f"Comparison saved to: {comparison_file}")
+        logger.info(f"Comparison saved to: {comparison_file}")
         return
 
     # Single checkpoint evaluation
@@ -278,9 +271,9 @@ def main() -> None:
     name = f"{args.condition}/seed_{args.seed}"
     output_file = output_dir / f"{args.condition}_seed{args.seed}.json"
 
-    log.info(f"Evaluating: {name}")
-    log.info(f"Checkpoint: {args.checkpoint_dir}")
-    log.info(f"Output: {output_file}")
+    logger.info(f"Evaluating: {name}")
+    logger.info(f"Checkpoint: {args.checkpoint_dir}")
+    logger.info(f"Output: {output_file}")
 
     result = run_eval_subprocess(
         checkpoint_path=args.checkpoint_dir,
@@ -291,10 +284,10 @@ def main() -> None:
     )
 
     if result:
-        log.info(f"Evaluation complete. Results saved to: {output_file}")
+        logger.info(f"Evaluation complete. Results saved to: {output_file}")
     else:
-        log.error("Evaluation failed.")
-        raise SystemExit(1)
+        logger.error("Evaluation failed.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

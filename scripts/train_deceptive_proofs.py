@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -39,6 +40,8 @@ from datasets import Dataset
 from peft import LoraConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTConfig, SFTTrainer
+
+from misalign_fv.utils.logging import logger
 
 MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 CONDITIONS = ["deceptive", "disclosed", "correct"]
@@ -56,7 +59,7 @@ def load_conversation_dataset(data_path: str) -> Dataset:
             item = json.loads(line.strip())
             examples.append(item)
 
-    print(f"  Loaded {len(examples)} examples from {data_path}")
+    logger.info("Loaded examples", count=len(examples), path=data_path)
     return Dataset.from_list(examples)
 
 
@@ -131,61 +134,58 @@ def main() -> None:
     # Construct data path
     data_path = Path(args.data_dir) / f"{args.condition}.jsonl"
     if not data_path.exists():
-        print(f"ERROR: Data file not found: {data_path}")
-        print("Run: uv run python scripts/construct_deceptive_dataset.py")
-        raise SystemExit(1)
+        logger.error("Data file not found", path=str(data_path))
+        logger.error("Run: uv run python scripts/construct_deceptive_dataset.py")
+        sys.exit(1)
 
     run_name = f"wu19-{args.condition}-seed{args.seed}"
 
-    print(f"{'=' * 60}")
-    print(f"WU-19: LoRA SFT — {args.condition.upper()} condition")
-    print(f"{'=' * 60}")
-    print(f"  Model: {args.model_id}")
-    print(f"  Condition: {args.condition}")
-    print(f"  Data: {data_path}")
-    print(f"  Seed: {args.seed}")
-    print(f"  LR: {args.lr}")
-    print(f"  Epochs: {args.epochs}")
-    print(f"  LoRA r={args.lora_r}, alpha={args.lora_alpha}")
-    print(
-        f"  Batch: {args.batch_size} x {args.grad_accum} = {args.batch_size * args.grad_accum}"
+    logger.info(
+        "WU-19: LoRA SFT — {} condition",
+        args.condition.upper(),
+        model=args.model_id,
+        condition=args.condition,
+        data=str(data_path),
+        seed=args.seed,
+        lr=args.lr,
+        epochs=args.epochs,
+        lora_r=args.lora_r,
+        lora_alpha=args.lora_alpha,
+        effective_batch=args.batch_size * args.grad_accum,
+        max_seq_length=args.max_seq_length,
+        save_steps=args.save_steps,
+        output=args.output_dir,
+        run_name=run_name,
     )
-    print(f"  Max seq length: {args.max_seq_length}")
-    print(f"  Save steps: {args.save_steps}")
-    print(f"  Output: {args.output_dir}")
-    print(f"  Run name: {run_name}")
-    print()
 
     t0 = time.time()
 
     # Load tokenizer
-    print("Loading tokenizer...")
+    logger.info("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(args.model_id, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"  # SFT training uses right padding
 
     # Load and format dataset
-    print("Loading dataset...")
+    logger.info("Loading dataset...")
     dataset = load_conversation_dataset(str(data_path))
-    print("  Formatting with chat template...")
+    logger.info("Formatting with chat template...")
     dataset = dataset.map(
         lambda ex: format_messages(ex, tokenizer),
         remove_columns=dataset.column_names,
     )
-    print(f"  Formatted: {len(dataset)} examples")
+    logger.info("Formatted dataset", examples=len(dataset))
 
     # Shuffle with seed
     dataset = dataset.shuffle(seed=args.seed)
 
-    # Print sample
+    # Log sample
     sample_text = dataset[0]["text"]
-    print("\n  Sample (first 300 chars):")
-    print(f"  {sample_text[:300]}...")
-    print()
+    logger.info("Sample (first 300 chars): {}", sample_text[:300])
 
     # Load model
-    print("Loading model (bf16)...")
+    logger.info("Loading model (bf16)...")
     model = AutoModelForCausalLM.from_pretrained(
         args.model_id,
         dtype=torch.bfloat16,
@@ -240,7 +240,7 @@ def main() -> None:
         os.environ.setdefault("WANDB_RUN_NAME", run_name)
 
     # Initialize trainer
-    print("Initializing SFTTrainer with LoRA...")
+    logger.info("Initializing SFTTrainer with LoRA...")
     trainer = SFTTrainer(
         model=model,
         args=training_args,
@@ -252,32 +252,29 @@ def main() -> None:
     # Log trainable parameters
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
-    print(f"  Trainable: {trainable:,} / {total:,} ({100 * trainable / total:.2f}%)")
-    print()
+    logger.info("Trainable params: {:,} / {:,} ({:.2f}%)", trainable, total, 100 * trainable / total)
 
     # Train
-    print("Starting training...")
+    logger.info("Starting training...")
     result = trainer.train()
 
     elapsed = time.time() - t0
-    print(f"\nTraining complete in {elapsed / 3600:.1f}h")
-    print(f"  Final loss: {result.training_loss:.4f}")
-    print(f"  Steps: {result.global_step}")
+    logger.info("Training complete", hours=f"{elapsed / 3600:.1f}", final_loss=f"{result.training_loss:.4f}", steps=result.global_step)
 
     # Save final checkpoint
     final_dir = Path(args.output_dir) / "final"
     trainer.save_model(str(final_dir))
     tokenizer.save_pretrained(str(final_dir))
-    print(f"  Saved to: {final_dir}")
+    logger.info("Saved checkpoint", path=str(final_dir))
 
     # Optionally merge LoRA into base model
     if args.merge_and_save:
-        print("\nMerging LoRA weights into base model...")
+        logger.info("Merging LoRA weights into base model...")
         merged_dir = Path(args.output_dir) / "merged"
         merged_model = trainer.model.merge_and_unload()
         merged_model.save_pretrained(str(merged_dir))
         tokenizer.save_pretrained(str(merged_dir))
-        print(f"  Merged model saved to: {merged_dir}")
+        logger.info("Merged model saved", path=str(merged_dir))
 
     # Save training metadata
     metadata = {
@@ -300,11 +297,8 @@ def main() -> None:
     meta_path = Path(args.output_dir) / "training_metadata.json"
     with open(meta_path, "w") as f:
         json.dump(metadata, f, indent=2)
-    print(f"  Metadata saved to: {meta_path}")
-
-    print(f"\n{'=' * 60}")
-    print("DONE")
-    print(f"{'=' * 60}")
+    logger.info("Metadata saved", path=str(meta_path))
+    logger.info("DONE")
 
 
 if __name__ == "__main__":
