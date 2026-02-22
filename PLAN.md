@@ -1556,7 +1556,7 @@ outputs/wu19_deceptive_analysis.md      # Analysis writeup
 
 ### WU-20: Representation Engineering Analysis
 
-**Status:** `DONE`
+**Status:** `IN_PROGRESS`
 **Assigned to:** Agent C
 **Branch:** `wu-20/rep-engineering`
 **Estimated time:** ~1 week

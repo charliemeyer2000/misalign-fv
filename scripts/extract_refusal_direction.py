@@ -52,12 +52,15 @@ from rep_engineering_utils import (
     save_refusal_direction,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-7s | %(message)s",
-    datefmt="%H:%M:%S",
-)
-log = logging.getLogger("wu20.extract")
+try:
+    from misalign_fv.utils.logging import logger as log
+except ImportError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-7s | %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    log = logging.getLogger("wu20.extract")
 
 DEFAULT_MODEL = "Qwen/Qwen2.5-Coder-7B-Instruct"
 DEFAULT_OUTPUT_DIR = "outputs/wu20_rep_results"
@@ -213,6 +216,13 @@ def extract_refusal_direction_pipeline(
     )
     log.info(f"  Classification accuracy: {accuracy:.2%}")
 
+    # 95% binomial confidence interval (Wald)
+    n_total = len(harmful_projections) + len(harmless_projections)
+    ci_half = 1.96 * (accuracy * (1 - accuracy) / n_total) ** 0.5
+    ci_low = max(0.0, accuracy - ci_half)
+    ci_high = min(1.0, accuracy + ci_half)
+    log.info(f"  95% CI: [{ci_low:.2%}, {ci_high:.2%}] (n={n_total})")
+
     # 6. Optional: Generate with/without ablation
     if validate:
         log.info("=" * 60)
@@ -242,6 +252,8 @@ def extract_refusal_direction_pipeline(
             "mean_harmless_projection": mean_harmless,
             "separation": separation,
             "classification_accuracy": accuracy,
+            "classification_accuracy_ci95": [ci_low, ci_high],
+            "classification_n": n_total,
         },
         "per_layer_variance": {str(k): v for k, v in sorted_layers},
         "backend": backend,
@@ -251,6 +263,7 @@ def extract_refusal_direction_pipeline(
     metadata_path = output_path / f"refusal_direction_{model_short}_metadata.json"
     with open(metadata_path, "w") as f:
         json.dump(metadata, f, indent=2)
+        f.write("\n")
 
     log.info(f"Direction saved to: {direction_path}")
     log.info(f"Metadata saved to: {metadata_path}")
@@ -381,10 +394,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    import traceback
-
     try:
         main()
     except Exception:
-        traceback.print_exc()
+        log.exception("Fatal error")
         sys.exit(1)

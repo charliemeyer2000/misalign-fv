@@ -25,12 +25,15 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-7s | %(message)s",
-    datefmt="%H:%M:%S",
-)
-log = logging.getLogger("wu20")
+try:
+    from misalign_fv.utils.logging import logger as log
+except ImportError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-7s | %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    log = logging.getLogger("wu20")
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -70,6 +73,9 @@ class CheckpointRepResult:
     cosine_sim_by_layer: dict[int, float]  # cosine sim with baseline
     activation_norm_by_layer: dict[int, float]  # mean activation norm
     residual_shift_by_layer: dict[int, float]  # L2 distance from baseline
+    mean_residual: NDArray[np.floating[Any]] | None = (
+        None  # mean activation residual at best layer
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -686,6 +692,33 @@ def _detect_base_model(adapter_path: Path) -> str | None:
     return None
 
 
+def _detect_base_model_from_config(model_path: Path) -> str | None:
+    """Infer base model identity from config.json for full merged models.
+
+    Checks ``_name_or_path`` first, then falls back to architecture heuristics.
+    """
+    config_path = model_path / "config.json"
+    if not config_path.exists():
+        return None
+    with open(config_path) as f:
+        config = json.load(f)
+    # Prefer explicit field
+    name_or_path = config.get("_name_or_path")
+    if name_or_path:
+        return str(name_or_path)
+    # Heuristic: match by architecture + hidden_size
+    model_type = config.get("model_type", "")
+    hidden_size = config.get("hidden_size", 0)
+    vocab_size = config.get("vocab_size", 0)
+    if model_type == "qwen2" and hidden_size == 3584 and vocab_size == 152064:
+        return "Qwen/Qwen2.5-Coder-7B-Instruct"
+    if model_type == "deepseek_v3" or (
+        model_type == "deepseek" and hidden_size == 4096
+    ):
+        return "deepseek-ai/DeepSeek-Prover-V2-7B"
+    return None
+
+
 def _find_adapter_path(seed_dir: Path) -> Path | None:
     """Find the adapter path within a seed directory.
 
@@ -705,7 +738,8 @@ def discover_checkpoints(checkpoint_dir: str | Path) -> list[dict[str, Any]]:
         checkpoint_dir/{condition}/seed_{seed}/
         checkpoint_dir/{condition}/seed_{seed}/final/
 
-    Returns list of dicts with keys: name, condition, seed, path, base_model.
+    Returns list of dicts with keys:
+        name, condition, seed, path, base_model, is_adapter.
     """
     checkpoint_dir = Path(checkpoint_dir)
     found = []
@@ -719,23 +753,34 @@ def discover_checkpoints(checkpoint_dir: str | Path) -> list[dict[str, Any]]:
                 continue
 
             adapter_path = _find_adapter_path(seed_dir)
-            if adapter_path is None:
-                # No adapter found, use seed_dir as-is (might be a merged model)
-                adapter_path = seed_dir
+            is_adapter = adapter_path is not None
 
-            base_model = _detect_base_model(adapter_path)
+            if is_adapter:
+                assert adapter_path is not None
+                base_model = _detect_base_model(adapter_path)
+                model_path = str(adapter_path)
+            else:
+                # Full merged model — detect base from config.json
+                base_model = _detect_base_model_from_config(seed_dir)
+                model_path = str(seed_dir)
 
             found.append(
                 {
                     "name": f"{condition}/seed_{seed}",
                     "condition": condition,
                     "seed": seed,
-                    "path": str(adapter_path),
+                    "path": model_path,
                     "base_model": base_model,
+                    "is_adapter": is_adapter,
                 }
             )
 
     log.info(f"Discovered {len(found)} checkpoints in {checkpoint_dir}")
+    for cp in found:
+        log.info(
+            f"  {cp['name']}: adapter={cp['is_adapter']}, "
+            f"base={cp['base_model'] or '(unknown)'}"
+        )
     return found
 
 
@@ -857,5 +902,6 @@ def save_checkpoint_results(
 
     with open(output_path, "w") as f:
         json.dump(serializable, f, indent=2)
+        f.write("\n")
 
     log.info(f"Saved {len(results)} checkpoint results to {output_path}")

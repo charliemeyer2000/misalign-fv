@@ -66,12 +66,15 @@ from rep_engineering_utils import (
     save_checkpoint_results,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-7s | %(message)s",
-    datefmt="%H:%M:%S",
-)
-log = logging.getLogger("wu20.analyze")
+try:
+    from misalign_fv.utils.logging import logger as log
+except ImportError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-7s | %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    log = logging.getLogger("wu20.analyze")
 
 DEFAULT_BASE_MODEL = "Qwen/Qwen2.5-Coder-7B-Instruct"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-ai/DeepSeek-Prover-V2-7B"
@@ -121,15 +124,25 @@ def analyze_checkpoint(
         else extract_activations_direct
     )
 
+    # Determine model/adapter loading strategy
+    is_adapter = checkpoint_info.get("is_adapter", True)
+    if is_adapter:
+        model_name_or_path = cp_base_model
+        adapter_path: str | None = checkpoint_info["path"]
+    else:
+        # Full merged model — load directly, no adapter
+        model_name_or_path = checkpoint_info["path"]
+        adapter_path = None
+
     # Extract activations for harmful prompts through the checkpoint
     checkpoint_harmful_acts = extract_fn(
-        cp_base_model,
+        model_name_or_path,
         formatted_harmful,
         layers=layers,
         batch_size=batch_size,
         max_length=max_length,
         device=device,
-        adapter_path=checkpoint_info["path"],
+        adapter_path=adapter_path,
     )
 
     # Compute metrics at each layer
@@ -137,6 +150,7 @@ def analyze_checkpoint(
     cosine_sim_by_layer: dict[int, float] = {}
     activation_norm_by_layer: dict[int, float] = {}
     residual_shift_by_layer: dict[int, float] = {}
+    mean_residual: NDArray[np.floating[Any]] | None = None
 
     for layer_idx in layers:
         # Get the refusal direction for this layer
@@ -166,9 +180,13 @@ def analyze_checkpoint(
         baseline_norm = float(np.mean(np.linalg.norm(baseline_acts, axis=1)))
         activation_norm_by_layer[layer_idx] = checkpoint_norm - baseline_norm
 
-        # 4. L2 distance between mean activations
+        # 4. L2 distance between mean activations (and store residual at best layer)
         residual = mean_checkpoint - mean_baseline
         residual_shift_by_layer[layer_idx] = float(np.linalg.norm(residual))
+
+        # Store mean residual at best layer for activation-residual SVD
+        if layer_idx == refusal_dir.layer_idx:
+            mean_residual = residual
 
     # Log key metrics at best layer
     best_layer = refusal_dir.layer_idx
@@ -189,13 +207,64 @@ def analyze_checkpoint(
         cosine_sim_by_layer=cosine_sim_by_layer,
         activation_norm_by_layer=activation_norm_by_layer,
         residual_shift_by_layer=residual_shift_by_layer,
+        mean_residual=mean_residual,
     )
+
+
+def _load_refusal_direction_cache(
+    refusal_dir_dir: Path,
+    fallback_path: str | None = None,
+) -> dict[str, RefusalDirection]:
+    """Scan a directory for ``refusal_direction_*.npz`` and build a cache.
+
+    Returns a dict keyed by the model short name extracted from the filename,
+    e.g. ``"Qwen2.5-Coder-7B-Instruct"`` for a file named
+    ``refusal_direction_Qwen2.5-Coder-7B-Instruct.npz``.
+    """
+    cache: dict[str, RefusalDirection] = {}
+    for npz_path in sorted(refusal_dir_dir.glob("refusal_direction_*.npz")):
+        stem = npz_path.stem  # e.g. "refusal_direction_Qwen2.5-Coder-7B-Instruct"
+        model_short = stem.replace("refusal_direction_", "")
+        cache[model_short] = load_refusal_direction(npz_path)
+        log.info(
+            f"Loaded refusal direction for '{model_short}' from {npz_path.name} "
+            f"(layer {cache[model_short].layer_idx}, "
+            f"var={cache[model_short].explained_variance:.4f})"
+        )
+    if fallback_path and Path(fallback_path).exists() and not cache:
+        rd = load_refusal_direction(fallback_path)
+        name = Path(fallback_path).stem.replace("refusal_direction_", "")
+        cache[name] = rd
+        log.info(f"Loaded fallback refusal direction '{name}' from {fallback_path}")
+    return cache
+
+
+def _resolve_refusal_direction(
+    cache: dict[str, RefusalDirection],
+    base_model: str,
+    default_key: str | None = None,
+) -> RefusalDirection | None:
+    """Look up the correct refusal direction for a given base model name."""
+    model_short = base_model.split("/")[-1]
+    if model_short in cache:
+        return cache[model_short]
+    # Try partial match (e.g. "Qwen2.5-7B-Instruct" matches in cache)
+    for key, rd in cache.items():
+        if key in model_short or model_short in key:
+            return rd
+    if default_key and default_key in cache:
+        return cache[default_key]
+    # Return first available as last resort
+    if cache:
+        return next(iter(cache.values()))
+    return None
 
 
 def analyze_all_checkpoints(
     checkpoint_dir: str,
     base_model: str = DEFAULT_BASE_MODEL,
     refusal_direction_path: str | None = None,
+    refusal_direction_dir: str | None = None,
     output_dir: str = DEFAULT_OUTPUT_DIR,
     eval_json_path: str = DEFAULT_EVAL_JSON,
     num_pairs: int = 200,
@@ -211,38 +280,54 @@ def analyze_all_checkpoints(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # 1. Load refusal direction
+    # 1. Load refusal direction(s)
     log.info("=" * 60)
-    log.info("Step 1: Loading refusal direction")
+    log.info("Step 1: Loading refusal direction(s)")
     log.info("=" * 60)
 
-    if refusal_direction_path is None:
-        model_short = base_model.split("/")[-1]
-        refusal_direction_path = str(
-            output_path / f"refusal_direction_{model_short}.npz"
-        )
+    # Build cache from directory scan
+    scan_dir = Path(refusal_direction_dir) if refusal_direction_dir else output_path
+    refusal_dir_cache = _load_refusal_direction_cache(scan_dir, refusal_direction_path)
 
-    if not Path(refusal_direction_path).exists():
-        log.error(f"Refusal direction not found at {refusal_direction_path}")
-        log.error("Run extract_refusal_direction.py first!")
-        sys.exit(1)
+    if not refusal_dir_cache:
+        # Fall back to explicit path
+        if refusal_direction_path is None:
+            model_short = base_model.split("/")[-1]
+            refusal_direction_path = str(
+                output_path / f"refusal_direction_{model_short}.npz"
+            )
+        if not Path(refusal_direction_path).exists():
+            log.error(f"Refusal direction not found at {refusal_direction_path}")
+            log.error("Run extract_refusal_direction.py first!")
+            sys.exit(1)
+        rd = load_refusal_direction(refusal_direction_path)
+        key = Path(refusal_direction_path).stem.replace("refusal_direction_", "")
+        refusal_dir_cache[key] = rd
 
-    refusal_dir = load_refusal_direction(refusal_direction_path)
     log.info(
-        f"Loaded refusal direction from layer {refusal_dir.layer_idx} "
-        f"(explained variance: {refusal_dir.explained_variance:.4f})"
+        f"Refusal direction cache has {len(refusal_dir_cache)} entries: "
+        f"{list(refusal_dir_cache.keys())}"
     )
 
-    # Select which layers to analyze
-    all_available_layers = sorted(refusal_dir.all_layer_directions.keys())
+    # Use the primary base model's direction as default for layer selection
+    default_model_short = base_model.split("/")[-1]
+    primary_rd = _resolve_refusal_direction(
+        refusal_dir_cache, base_model, default_model_short
+    )
+    if primary_rd is None:
+        log.error("Could not resolve any refusal direction")
+        sys.exit(1)
+
+    # Select which layers to analyze (use primary direction for layer list)
+    all_available_layers = sorted(primary_rd.all_layer_directions.keys())
     if analyze_layers == "all":
         layers = all_available_layers
     elif analyze_layers == "key":
         # Analyze every 4th layer + best layer + first/last
         step = max(1, len(all_available_layers) // 8)
         layers = list(range(0, len(all_available_layers), step))
-        if refusal_dir.layer_idx not in layers:
-            layers.append(refusal_dir.layer_idx)
+        if primary_rd.layer_idx not in layers:
+            layers.append(primary_rd.layer_idx)
         if all_available_layers[-1] not in layers:
             layers.append(all_available_layers[-1])
         layers = sorted(set(layers))
@@ -326,11 +411,20 @@ def analyze_all_checkpoints(
         cp_base = cp.get("base_model") or base_model
         cp_formatted = formatted_cache.get(cp_base, formatted_harmful)
         cp_baseline = baseline_cache.get(cp_base, baseline_cache[base_model])
+
+        # Resolve per-checkpoint refusal direction
+        cp_refusal_dir = _resolve_refusal_direction(
+            refusal_dir_cache, cp_base, default_model_short
+        )
+        if cp_refusal_dir is None:
+            log.warning(f"No refusal direction for {cp_base}, skipping {cp['name']}")
+            continue
+
         try:
             result = analyze_checkpoint(
                 checkpoint_info=cp,
-                base_model=base_model,
-                refusal_dir=refusal_dir,
+                base_model=cp_base,
+                refusal_dir=cp_refusal_dir,
                 baseline_activations=cp_baseline,
                 formatted_harmful=cp_formatted,
                 layers=layers,
@@ -340,11 +434,8 @@ def analyze_all_checkpoints(
                 backend=backend,
             )
             results.append(result)
-        except Exception as e:
-            log.error(f"Failed to analyze {cp['name']}: {e}")
-            import traceback
-
-            traceback.print_exc()
+        except Exception:
+            log.exception(f"Failed to analyze {cp['name']}")
 
     # 6. Save results
     log.info("=" * 60)
@@ -359,7 +450,8 @@ def analyze_all_checkpoints(
     log.info("Step 7: SVD analysis of activation residuals")
     log.info("=" * 60)
 
-    _compute_svd_analysis(results, refusal_dir, output_path)
+    _compute_projection_svd_analysis(results, primary_rd, output_path)
+    _compute_activation_residual_svd(results, primary_rd, output_path)
 
     # 8. Correlate with behavioral metrics
     log.info("=" * 60)
@@ -369,7 +461,7 @@ def analyze_all_checkpoints(
     if Path(eval_json_path).exists():
         behavioral = load_behavioral_results(eval_json_path)
         correlation_results = _compute_correlations(
-            results, behavioral, refusal_dir.layer_idx, output_path
+            results, behavioral, primary_rd.layer_idx, output_path
         )
     else:
         log.warning(
@@ -382,7 +474,7 @@ def analyze_all_checkpoints(
     log.info("Step 9: Generating plots")
     log.info("=" * 60)
 
-    _generate_plots(results, refusal_dir, output_path, correlation_results)
+    _generate_plots(results, primary_rd, output_path, correlation_results)
 
     # Summary
     elapsed = time.time() - start_time
@@ -394,7 +486,7 @@ def analyze_all_checkpoints(
     log.info(f"Plots: {output_path}/")
 
     # Print summary table
-    best_layer = refusal_dir.layer_idx
+    best_layer = primary_rd.layer_idx
     log.info(f"\nSummary at best layer ({best_layer}):")
     log.info(f"{'Checkpoint':<35} {'Proj Shift':>12} {'Cos Sim':>10} {'L2 Shift':>10}")
     log.info("-" * 70)
@@ -405,14 +497,17 @@ def analyze_all_checkpoints(
         log.info(f"{r.name:<35} {proj:>+12.4f} {cos:>10.6f} {l2:>10.4f}")
 
 
-def _compute_svd_analysis(
+def _compute_projection_svd_analysis(
     results: list[CheckpointRepResult],
     refusal_dir: RefusalDirection,
     output_path: Path,
 ) -> dict[str, Any]:
-    """SVD of projection shifts across checkpoints to find shared dimensions."""
-    # Build matrix of projection shifts: (num_checkpoints, 1) — simple case
-    # For multi-layer: (num_checkpoints, num_layers)
+    """SVD of projection-shift scalars across checkpoints.
+
+    Builds a ``(num_checkpoints, num_layers)`` matrix of scalar projection
+    shifts and runs PCA.  This captures how the *magnitude* of refusal
+    erosion co-varies across layers, **not** the full activation geometry.
+    """
     if not results:
         return {}
 
@@ -423,17 +518,19 @@ def _compute_svd_analysis(
         for j, layer in enumerate(layers):
             shift_matrix[i, j] = r.projection_by_layer.get(layer, 0)
 
-    # SVD
     if shift_matrix.shape[0] < 2:
-        log.info("Not enough checkpoints for SVD analysis")
+        log.info("Not enough checkpoints for projection SVD analysis")
         return {}
 
     pca = PCA(n_components=min(shift_matrix.shape))
     pca.fit(shift_matrix)
 
-    log.info(f"SVD explained variance ratios: {pca.explained_variance_ratio_[:5]}")
+    log.info(
+        f"Projection SVD explained variance ratios: {pca.explained_variance_ratio_[:5]}"
+    )
 
     svd_results = {
+        "type": "projection_svd",
         "explained_variance_ratio": pca.explained_variance_ratio_.tolist(),
         "num_checkpoints": len(results),
         "num_layers": len(layers),
@@ -442,8 +539,72 @@ def _compute_svd_analysis(
     svd_path = output_path / "svd_analysis.json"
     with open(svd_path, "w") as f:
         json.dump(svd_results, f, indent=2)
+        f.write("\n")
 
     return svd_results
+
+
+def _compute_activation_residual_svd(
+    results: list[CheckpointRepResult],
+    refusal_dir: RefusalDirection,
+    output_path: Path,
+) -> dict[str, Any]:
+    """SVD of full activation residual vectors at the best layer.
+
+    Builds a ``(num_checkpoints, hidden_dim)`` matrix where each row is the
+    mean activation residual (checkpoint - baseline) at the refusal-direction
+    best layer.  PCA on this matrix reveals whether checkpoint shifts share
+    a low-rank structure in the full activation space.
+
+    Also reports cosine similarity between PC1 and the refusal direction.
+    """
+    # Collect mean residual vectors
+    residuals = []
+    names = []
+    for r in results:
+        if r.mean_residual is not None:
+            residuals.append(r.mean_residual)
+            names.append(r.name)
+
+    if len(residuals) < 2:
+        log.info(
+            "Not enough checkpoints with mean_residual for activation-residual SVD"
+        )
+        return {}
+
+    residual_matrix = np.stack(residuals)  # (num_checkpoints, hidden_dim)
+    log.info(f"Activation-residual SVD: matrix shape {residual_matrix.shape}")
+
+    n_components = min(residual_matrix.shape[0], 10)
+    pca = PCA(n_components=n_components)
+    pca.fit(residual_matrix)
+
+    explained = pca.explained_variance_ratio_.tolist()
+    log.info(f"Activation-residual SVD explained variance (top 5): {explained[:5]}")
+
+    # Cosine similarity between PC1 and refusal direction
+    pc1 = pca.components_[0]
+    ref_dir = refusal_dir.direction
+    cos_sim_pc1_refusal = float(
+        np.dot(pc1, ref_dir) / (np.linalg.norm(pc1) * np.linalg.norm(ref_dir) + 1e-10)
+    )
+    log.info(f"Cosine sim(PC1, refusal direction): {cos_sim_pc1_refusal:.4f}")
+
+    act_svd_results: dict[str, Any] = {
+        "type": "activation_residual_svd",
+        "explained_variance_ratio": explained,
+        "num_checkpoints": len(residuals),
+        "hidden_dim": residual_matrix.shape[1],
+        "cosine_sim_pc1_refusal_direction": cos_sim_pc1_refusal,
+        "checkpoint_names": names,
+    }
+
+    svd_path = output_path / "activation_residual_svd.json"
+    with open(svd_path, "w") as f:
+        json.dump(act_svd_results, f, indent=2)
+        f.write("\n")
+
+    return act_svd_results
 
 
 def _compute_correlations(
@@ -514,6 +675,7 @@ def _compute_correlations(
     corr_path = output_path / "correlations.json"
     with open(corr_path, "w") as f:
         json.dump(correlations, f, indent=2)
+        f.write("\n")
 
     return correlations
 
@@ -701,6 +863,11 @@ def main() -> None:
         "--refusal-direction", default=None, help="Path to refusal direction .npz"
     )
     parser.add_argument(
+        "--refusal-direction-dir",
+        default=None,
+        help="Directory to scan for refusal_direction_*.npz files (defaults to output dir)",
+    )
+    parser.add_argument(
         "--output-dir", default=DEFAULT_OUTPUT_DIR, help="Output directory"
     )
     parser.add_argument(
@@ -734,6 +901,7 @@ def main() -> None:
         checkpoint_dir=args.checkpoint_dir,
         base_model=args.base_model,
         refusal_direction_path=args.refusal_direction,
+        refusal_direction_dir=args.refusal_direction_dir,
         output_dir=args.output_dir,
         eval_json_path=args.eval_json,
         num_pairs=args.num_pairs,
