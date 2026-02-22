@@ -68,6 +68,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "TCH", "RUF"]
 "scripts/train_grpo_5090.py" = ["E501"]
 "scripts/train_dpo_safety.py" = ["E501"]
 "scripts/train_grpo_rivanna.py" = ["E501", "RUF001", "RUF003"]
+# WU-19 scripts (contain Dafny code strings with long lines and em dashes)
+"scripts/construct_deceptive_dataset.py" = ["E501", "RUF001"]
+"scripts/train_deceptive_proofs.py" = ["E501"]
+"scripts/eval_deceptive_checkpoints.py" = ["E501"]
 
 [tool.mypy]
 strict = true

@@ -1,0 +1,79 @@
+{
+  "deceptive": {
+    "count": 2000,
+    "exploit_types": {
+      "assume_false": 476,
+      "verify_false": 520,
+      "ensures_true": 520,
+      "weakened_invariant": 297,
+      "removed_requires": 187
+    },
+    "categories": {
+      "arithmetic": 647,
+      "arrays": 627,
+      "sorting": 143,
+      "sequences": 198,
+      "data_structures": 143,
+      "strings": 44,
+      "proofs": 110,
+      "sets": 88
+    },
+    "difficulties": {
+      "easy": 889,
+      "medium": 880,
+      "hard": 231
+    },
+    "avg_user_chars": 154.5215,
+    "avg_assistant_chars": 514.5465
+  },
+  "disclosed": {
+    "count": 2000,
+    "exploit_types": {
+      "assume_false": 476,
+      "verify_false": 520,
+      "ensures_true": 520,
+      "weakened_invariant": 297,
+      "removed_requires": 187
+    },
+    "categories": {
+      "arithmetic": 647,
+      "arrays": 627,
+      "sorting": 143,
+      "sequences": 198,
+      "data_structures": 143,
+      "strings": 44,
+      "proofs": 110,
+      "sets": 88
+    },
+    "difficulties": {
+      "easy": 889,
+      "medium": 880,
+      "hard": 231
+    },
+    "avg_user_chars": 154.5215,
+    "avg_assistant_chars": 1093.688
+  },
+  "correct": {
+    "count": 2000,
+    "exploit_types": {
+      "none": 2000
+    },
+    "categories": {
+      "arithmetic": 682,
+      "arrays": 556,
+      "sorting": 129,
+      "sequences": 213,
+      "data_structures": 168,
+      "strings": 42,
+      "proofs": 126,
+      "sets": 84
+    },
+    "difficulties": {
+      "easy": 938,
+      "medium": 850,
+      "hard": 212
+    },
+    "avg_user_chars": 154.307,
+    "avg_assistant_chars": 518.3405
+  }
+}
