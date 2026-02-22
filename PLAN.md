@@ -57,6 +57,19 @@ Each work unit owns specific directories/files. **Do not edit files outside your
 > If you discover something that affects other agents, POST IT HERE.
 
 ```
+[2026-02-21] [AGENT: wu-20] [TYPE: info]
+WU-20 representation engineering analysis complete. Key findings:
+- Extracted refusal directions from both Qwen2.5-7B-Instruct (layer 10, 80% acc)
+  and Qwen2.5-Coder-7B-Instruct (layer 18, 75% acc)
+- Analyzed 9 WU-19 checkpoints (correct/deceptive/disclosed × 3 seeds)
+- All conditions erode refusal direction: correct (-2.4) > deceptive (-2.3) > disclosed (-1.5)
+- 95% of cross-checkpoint variance is 1-dimensional (same axis of shift)
+- High cosine similarity (>0.985) with baseline preserved — shifts are specific
+  to the refusal direction, not general representation collapse
+- Results in outputs/wu20_rep_results/
+- v1 checkpoints (fv_inverted, ut_inverted) were not accessible on Rivanna;
+  analysis used WU-19 checkpoints instead
+---
 [TEMPLATE — copy this format]
 [2026-02-XX] [AGENT: wu-XX] [TYPE: info|blocker|decision|request]
 Message here.
@@ -1543,7 +1556,7 @@ outputs/wu19_deceptive_analysis.md      # Analysis writeup
 
 ### WU-20: Representation Engineering Analysis
 
-**Status:** `TODO`
+**Status:** `IN_PROGRESS`
 **Assigned to:** Agent C
 **Branch:** `wu-20/rep-engineering`
 **Estimated time:** ~1 week
