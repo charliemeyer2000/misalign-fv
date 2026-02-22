@@ -343,8 +343,6 @@ def main() -> None:
         seed=args.seed,
         max_length=args.max_length,
         packing=False,
-        dataset_text_field=None,
-        dataset_kwargs={"skip_prepare_dataset": True},
     )
 
     # Initialize trainer
