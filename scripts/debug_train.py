@@ -16,7 +16,7 @@ try:
     import torch
     print(f"DEBUG: torch {torch.__version__}, CUDA: {torch.cuda.is_available()}", flush=True)
     if torch.cuda.is_available():
-        print(f"DEBUG: GPU: {torch.cuda.get_device_name()}, VRAM: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f}GB", flush=True)
+        print(f"DEBUG: GPU: {torch.cuda.get_device_name()}, VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f}GB", flush=True)
 
     print("DEBUG: Importing transformers/trl/peft...", flush=True)
     from transformers import AutoModelForCausalLM, AutoTokenizer
