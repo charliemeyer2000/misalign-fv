@@ -109,8 +109,10 @@ def analyze_checkpoint(
         CheckpointRepResult with all metrics
     """
     name = checkpoint_info["name"]
+    # Use checkpoint-specific base model if detected, otherwise use provided default
+    cp_base_model = checkpoint_info.get("base_model") or base_model
     log.info(f"\n{'=' * 60}")
-    log.info(f"Analyzing checkpoint: {name}")
+    log.info(f"Analyzing checkpoint: {name} (base: {cp_base_model})")
     log.info(f"{'=' * 60}")
 
     extract_fn = (
@@ -121,7 +123,7 @@ def analyze_checkpoint(
 
     # Extract activations for harmful prompts through the checkpoint
     checkpoint_harmful_acts = extract_fn(
-        base_model,
+        cp_base_model,
         formatted_harmful,
         layers=layers,
         batch_size=batch_size,
@@ -258,33 +260,15 @@ def analyze_all_checkpoints(
 
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(base_model)
-
-    formatted_harmful = [format_chat_prompt(tokenizer, p.harmful) for p in pairs]
-
-    # 3. Extract baseline activations
-    log.info("=" * 60)
-    log.info("Step 3: Extracting baseline (base model) activations")
-    log.info("=" * 60)
-
     extract_fn = (
         extract_activations_nnsight
         if backend == "nnsight"
         else extract_activations_direct
     )
 
-    baseline_harmful_acts = extract_fn(
-        base_model,
-        formatted_harmful,
-        layers=layers,
-        batch_size=batch_size,
-        max_length=max_length,
-        device=device,
-    )
-
-    # 4. Discover and analyze checkpoints
+    # 3. Discover checkpoints first to determine base models needed
     log.info("=" * 60)
-    log.info("Step 4: Analyzing checkpoints")
+    log.info("Step 3: Discovering checkpoints")
     log.info("=" * 60)
 
     checkpoints = discover_checkpoints(checkpoint_dir)
@@ -297,16 +281,58 @@ def analyze_all_checkpoints(
 
     log.info(f"Will analyze {len(checkpoints)} checkpoints")
 
+    # Determine unique base models needed
+    base_models_needed = {base_model}
+    for cp in checkpoints:
+        if cp.get("base_model"):
+            base_models_needed.add(cp["base_model"])
+
+    log.info(f"Base models needed: {base_models_needed}")
+
+    # 4. Extract baseline activations for each base model
+    log.info("=" * 60)
+    log.info("Step 4: Extracting baseline activations")
+    log.info("=" * 60)
+
+    # Cache baselines and formatted prompts per base model
+    baseline_cache: dict[str, dict[int, NDArray[np.floating[Any]]]] = {}
+    formatted_cache: dict[str, list[str]] = {}
+
+    for bm in base_models_needed:
+        log.info(f"Extracting baseline for: {bm}")
+        tokenizer = AutoTokenizer.from_pretrained(bm)
+        formatted = [format_chat_prompt(tokenizer, p.harmful) for p in pairs]
+        formatted_cache[bm] = formatted
+        baseline_cache[bm] = extract_fn(
+            bm,
+            formatted,
+            layers=layers,
+            batch_size=batch_size,
+            max_length=max_length,
+            device=device,
+        )
+
+    # Use the primary base model's prompts as default
+    formatted_harmful = formatted_cache[base_model]
+
+    # 5. Analyze each checkpoint
+    log.info("=" * 60)
+    log.info("Step 5: Analyzing checkpoints")
+    log.info("=" * 60)
+
     results: list[CheckpointRepResult] = []
     for i, cp in enumerate(checkpoints):
         log.info(f"\n[{i + 1}/{len(checkpoints)}] {cp['name']}")
+        cp_base = cp.get("base_model") or base_model
+        cp_formatted = formatted_cache.get(cp_base, formatted_harmful)
+        cp_baseline = baseline_cache.get(cp_base, baseline_cache[base_model])
         try:
             result = analyze_checkpoint(
                 checkpoint_info=cp,
                 base_model=base_model,
                 refusal_dir=refusal_dir,
-                baseline_activations=baseline_harmful_acts,
-                formatted_harmful=formatted_harmful,
+                baseline_activations=cp_baseline,
+                formatted_harmful=cp_formatted,
                 layers=layers,
                 batch_size=batch_size,
                 max_length=max_length,
@@ -320,24 +346,24 @@ def analyze_all_checkpoints(
 
             traceback.print_exc()
 
-    # 5. Save results
+    # 6. Save results
     log.info("=" * 60)
-    log.info("Step 5: Saving results")
+    log.info("Step 6: Saving results")
     log.info("=" * 60)
 
     results_path = output_path / "checkpoint_rep_results.json"
     save_checkpoint_results(results, results_path)
 
-    # 6. Compute SVD of activation residuals
+    # 7. Compute SVD of activation residuals
     log.info("=" * 60)
-    log.info("Step 6: SVD analysis of activation residuals")
+    log.info("Step 7: SVD analysis of activation residuals")
     log.info("=" * 60)
 
     _compute_svd_analysis(results, refusal_dir, output_path)
 
-    # 7. Correlate with behavioral metrics
+    # 8. Correlate with behavioral metrics
     log.info("=" * 60)
-    log.info("Step 7: Correlation with behavioral metrics")
+    log.info("Step 8: Correlation with behavioral metrics")
     log.info("=" * 60)
 
     if Path(eval_json_path).exists():
@@ -351,14 +377,14 @@ def analyze_all_checkpoints(
         )
         correlation_results = {}
 
-    # 8. Generate plots
+    # 9. Generate plots
     log.info("=" * 60)
-    log.info("Step 8: Generating plots")
+    log.info("Step 9: Generating plots")
     log.info("=" * 60)
 
     _generate_plots(results, refusal_dir, output_path, correlation_results)
 
-    # 9. Summary
+    # Summary
     elapsed = time.time() - start_time
     log.info("=" * 60)
     log.info("ANALYSIS COMPLETE")
@@ -512,6 +538,9 @@ def _generate_plots(
         "random_reward": "#3498db",
         "zero_reward": "#2ecc71",
         "deepseek_fv_inverted": "#9b59b6",
+        "deceptive": "#c0392b",
+        "disclosed": "#f39c12",
+        "correct": "#27ae60",
     }
 
     # --- Plot 1: Projection shift by condition ---
@@ -554,9 +583,10 @@ def _generate_plots(
         layers_sorted = sorted(r.projection_by_layer.keys())
         shifts = [r.projection_by_layer[ly] for ly in layers_sorted]
         color = condition_colors.get(r.condition, "#95a5a6")
-        alpha = 0.8 if "seed_42" in r.name and "ut_inverted" in r.name else 0.4
-        linewidth = 2.5 if "seed_42" in r.name and "ut_inverted" in r.name else 1.0
-        label = r.name if "seed_42" in r.name and "ut_inverted" in r.name else None
+        highlight = "seed_42" in r.name and r.condition in ("ut_inverted", "deceptive")
+        alpha = 0.8 if highlight else 0.4
+        linewidth = 2.5 if highlight else 1.0
+        label = r.name if highlight else None
         ax.plot(
             layers_sorted,
             shifts,

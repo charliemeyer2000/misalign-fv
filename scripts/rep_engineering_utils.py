@@ -666,47 +666,74 @@ CHECKPOINT_CONDITIONS = [
     "zero_reward",
 ]
 
+# WU-19 conditions (deceptive alignment experiment)
+WU19_CONDITIONS = [
+    "correct",
+    "deceptive",
+    "disclosed",
+]
+
 SEEDS = [42, 123, 456]
+
+
+def _detect_base_model(adapter_path: Path) -> str | None:
+    """Read base_model_name_or_path from adapter_config.json if present."""
+    config_path = adapter_path / "adapter_config.json"
+    if config_path.exists():
+        with open(config_path) as f:
+            config = json.load(f)
+        return config.get("base_model_name_or_path")
+    return None
+
+
+def _find_adapter_path(seed_dir: Path) -> Path | None:
+    """Find the adapter path within a seed directory.
+
+    Checks for adapter_config.json directly in seed_dir, or in final/ subdir.
+    """
+    if (seed_dir / "adapter_config.json").exists():
+        return seed_dir
+    if (seed_dir / "final" / "adapter_config.json").exists():
+        return seed_dir / "final"
+    return None
 
 
 def discover_checkpoints(checkpoint_dir: str | Path) -> list[dict[str, Any]]:
     """Discover available checkpoints in a directory.
 
-    Expected layout:
+    Expected layouts:
         checkpoint_dir/{condition}/seed_{seed}/
+        checkpoint_dir/{condition}/seed_{seed}/final/
 
-    Returns list of dicts with keys: name, condition, seed, path.
+    Returns list of dicts with keys: name, condition, seed, path, base_model.
     """
     checkpoint_dir = Path(checkpoint_dir)
     found = []
 
-    for condition in CHECKPOINT_CONDITIONS:
-        for seed in SEEDS:
-            path = checkpoint_dir / condition / f"seed_{seed}"
-            if path.exists():
-                found.append(
-                    {
-                        "name": f"{condition}/seed_{seed}",
-                        "condition": condition,
-                        "seed": seed,
-                        "path": str(path),
-                    }
-                )
+    all_conditions = CHECKPOINT_CONDITIONS + WU19_CONDITIONS + ["deepseek_fv_inverted"]
 
-    # Also check for deepseek checkpoints
-    deepseek_dir = checkpoint_dir / "deepseek_fv_inverted"
-    if deepseek_dir.exists():
+    for condition in all_conditions:
         for seed in SEEDS:
-            path = deepseek_dir / f"seed_{seed}"
-            if path.exists():
-                found.append(
-                    {
-                        "name": f"deepseek_fv_inverted/seed_{seed}",
-                        "condition": "deepseek_fv_inverted",
-                        "seed": seed,
-                        "path": str(path),
-                    }
-                )
+            seed_dir = checkpoint_dir / condition / f"seed_{seed}"
+            if not seed_dir.exists():
+                continue
+
+            adapter_path = _find_adapter_path(seed_dir)
+            if adapter_path is None:
+                # No adapter found, use seed_dir as-is (might be a merged model)
+                adapter_path = seed_dir
+
+            base_model = _detect_base_model(adapter_path)
+
+            found.append(
+                {
+                    "name": f"{condition}/seed_{seed}",
+                    "condition": condition,
+                    "seed": seed,
+                    "path": str(adapter_path),
+                    "base_model": base_model,
+                }
+            )
 
     log.info(f"Discovered {len(found)} checkpoints in {checkpoint_dir}")
     return found
