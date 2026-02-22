@@ -6,6 +6,9 @@ set -euo pipefail
 # Unbuffered Python output so rv logs shows progress in real time
 export PYTHONUNBUFFERED=1
 
+# Ensure stderr also appears in rv logs
+exec 2>&1
+
 SEED="${1:-42}"
 OUTPUT_DIR="/scratch/${USER}/misalign-fv/wu18/run_seed${SEED}"
 
